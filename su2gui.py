@@ -33,7 +33,11 @@ from uicard import ui_card, server
 # Logging funtions
 from logger import log, clear_logs , Error_dialog_card, Warn_dialog_card, logs_tab
 
+# Config tab
 from config import *
+# User configuration
+from user_config import get_su2_path, set_su2_path, clear_config
+import platform
 
 import vtk
 # vtm reader
@@ -1504,26 +1508,94 @@ with SinglePageWithDrawerLayout(server) as layout:
 # CLI
 # -----------------------------------------------------------------------------
 
-def check_su2():
-    # Check if SU2 is installed by trying to locate the SU2_CFD command
-    su2_command = shutil.which("SU2_CFD")
+def check_su2(path=None):
+  """Check if SU2 is installed and accessible, prompt for path if not."""
+  
+  # First check if a path is provided as a parameter
+  if path:
+    executable = path
+    if platform.system() == "Windows" and not executable.lower().endswith('.exe'):
+      executable += ".exe"
     
-    if su2_command:
-        print("SU2_GUI is Able to access SU2_CFD.")
+    if os.path.isfile(executable):
+      try:
+        result = subprocess.run([executable, "--help"], 
+                     stdout=subprocess.PIPE, 
+                     stderr=subprocess.PIPE, 
+                     text=True, 
+                     timeout=5)
+        if "SU2" in result.stdout or "SU2" in result.stderr:
+          print(f"Using provided SU2_CFD from: {path}")
+          set_su2_path(path)
+          return path
+        else:
+          print("The provided file does not appear to be SU2_CFD. Falling back to other methods.")
+      except (subprocess.SubprocessError, OSError):
+        print("Could not execute the provided file. Falling back to other methods.")
+  
+  # Try to get the path from config
+  su2_path = get_su2_path()
+  
+  # If path exists in config, check if it's valid
+  if su2_path:
+    executable = su2_path
+    if platform.system() == "Windows" and not executable.lower().endswith('.exe'):
+      executable += ".exe"
+    
+    if os.path.isfile(executable) and os.access(executable, os.X_OK):
+      print(f"Using SU2_CFD from stored configuration: {su2_path}")
+      return su2_path
+  
+  # Try to find SU2_CFD in PATH
+  su2_command = shutil.which("SU2_CFD")
+  
+  if su2_command:
+    print("SU2_GUI is able to access SU2_CFD from system PATH.")
+    # Store this path for future use
+    set_su2_path(su2_command)
+    return su2_command
+  
+  print("\nSU2 is not found in PATH or stored configuration.")
+  print("Please provide the path to the SU2_CFD executable.")
+  print("Example: /opt/su2/bin/SU2_CFD or C:\\Program Files\\SU2\\bin\\SU2_CFD.exe")
+  
+  while True:
+    # Get path from user
+    user_path = input("SU2_CFD path: ").strip()
+    
+    if not user_path:
+      response = input("Continue without SU2? (y/n): ").strip().lower()
+      if response != 'y':
+        print("Process aborted. Please install SU2 and try again.")
+        exit(1)
+      return None
+    
+    # Check if the path is valid
+    executable = user_path
+    if platform.system() == "Windows" and not executable.lower().endswith('.exe'):
+      executable += ".exe"
+    
+    if os.path.isfile(executable):
+      # Test if it's actually SU2_CFD by running it with --help
+      try:
+        result = subprocess.run([executable, "--help"], 
+                     stdout=subprocess.PIPE, 
+                     stderr=subprocess.PIPE, 
+                     text=True, 
+                     timeout=5)
+        if "SU2" in result.stdout or "SU2" in result.stderr:
+          print(f"SU2_CFD found at: {user_path}")
+          # Store this path for future use
+          set_su2_path(user_path)
+          return user_path
+        else:
+          print("The file does not appear to be SU2_CFD. Please provide the correct path.")
+      except (subprocess.SubprocessError, OSError):
+        print("Could not execute the file. Please ensure it has execute permissions.")
     else:
-        print("\nSU2 is not installed.")
-        print("Please install SU2 from the following link:")
-        print("https://su2code.github.io/download/")
-
-        # Prompt user to continue or exit
-        response = input("Would you like to continue without SU2? (y/n): ").strip().lower()
-        if response != 'y' or response != '':
-            exit("Process aborted. Please install SU2 and try again.")
-
+      print("File not found. Please provide a valid path.")
 
 def main():
-    # check if SU2 is installed
-    check_su2()
 
     # Argument parsing
     parser = argparse.ArgumentParser(description='Start the SU2 GUI application.')
@@ -1532,13 +1604,36 @@ def main():
     parser.add_argument('-m', '--mesh', type=str, help='Path to the SU2 mesh file in .su2 format.')
     parser.add_argument('--config', type=str, help='Path to the configuration file.')
     parser.add_argument('--restart', type=str, help='Path to the restart file in .csv/.dat format.')
-    
+    parser.add_argument('--su2', type=str, help='Path to the SU2_CFD executable. Overrides stored path.')
+    parser.add_argument('--clear-data', action='store_true', help='Clear all application data including saved configurations and cases.')
+    parser.add_argument('-v', '--version', action='store_true', help='Print the version of SU2GUI and exit.')
+
+
     args = parser.parse_args()
 
     mesh_path = args.mesh
     config_path = args.config
     restart_path = args.restart
     case = args.case
+    su2_path = args.su2
+    clear_data = args.clear_data
+    version = args.version
+
+    if version:
+        print(f"SU2GUI version 1.0.2")
+        exit(0)
+
+    if clear_data:
+        clear_config()
+        print("All application data cleared.")
+        exit(0)
+
+    # Check if SU2 is installed and get the path
+    su2_path = check_su2(su2_path)
+    
+    # Store su2_path for use in solver.py
+    state.su2_cfd_path = su2_path
+
 
     if case:
         case_args(case)
@@ -1594,6 +1689,12 @@ def main():
             state.dirty('restartFile')
     elif restart_path:
         log("error", f"The restart file {restart_path} does not exist, and was not loaded.")
+
+    # If --su2 argument is provided, update the stored path
+    if args.su2:
+        from user_config import set_su2_path
+        set_su2_path(args.su2)
+        state.su2_cfd_path = args.su2
 
     # Flush all states at once
     state.flush()

@@ -7,7 +7,7 @@ Please note that SU2_GUI is currently under development. We welcome any feedback
 
 ## Overview
 Here is an overview of how SU2GUI works:
-![overview_su2gui](https://github.com/bigfooted/su2gui/assets/7050568/c4c8e171-dfeb-4b68-8950-8b4064cafe2e)
+![overview_su2gui](./img/overview_su2gui.png)
 
 ### Getting Started
 #### Prerequisites

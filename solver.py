@@ -245,13 +245,22 @@ def update_material(convergence_val, **kwargs):
 
 # start SU2 solver
 def su2_play():
-
     global proc_SU2
+
+    # Use stored SU2_CFD path or fallback to "SU2_CFD" if not set
+    su2_cfd_path = getattr(state, "su2_cfd_path", None)
+    if not su2_cfd_path:
+        # Try to get from config as fallback
+        from user_config import get_su2_path
+        su2_cfd_path = get_su2_path()
+        if not su2_cfd_path:
+            log("error", "SU2_CFD path not configured. Please restart SU2GUI to configure the path.")
+            return
 
     # every time we press the button we switch the state
     state.solver_running = not state.solver_running
     if state.solver_running:
-        log("info", "### SU2 solver started!")
+        log("info", f"### SU2 solver started using {su2_cfd_path}!")
         # change the solver button icon
         state.solver_icon="mdi-stop-circle"
 
@@ -275,7 +284,7 @@ def su2_play():
         # run SU2_CFD with config.cfg
         with open(BASE / "user" / state.case_name / "su2.out", "w") as outfile:
           with open(BASE / "user" / state.case_name / "su2.err", "w") as errfile:
-            proc_SU2 = subprocess.Popen(['SU2_CFD', state.filename_cfg_export],
+            proc_SU2 = subprocess.Popen([su2_cfd_path, state.filename_cfg_export],
                                 cwd= BASE / "user" / state.case_name,
                                 text=True,
                                 stdout=outfile,

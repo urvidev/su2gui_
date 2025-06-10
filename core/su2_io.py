@@ -11,6 +11,8 @@ if parent_dir not in sys.path:
 from core.su2_json import *
 from core.logger import log
 
+from core.su2_py_wrapper import save_json_cfg_py_file
+
 BASE = Path(__file__).parent.parent
 
 # remove empty lists from dictlist object

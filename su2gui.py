@@ -102,6 +102,8 @@ from core.solver import *
 from ui.initialization import *
 # gittree menu : import file I/O tab                                        #
 from ui.fileio import *
+# gittree menu : import variables tab                                        #
+from ui.variables import *
 #############################################################################
 
 
@@ -345,6 +347,9 @@ id_fileio     = pipeline.add_node(parent=id_initial,    name="File I/O",
 # 9
 id_solver     = pipeline.add_node(parent=id_fileio,    name="Solver",
                                   subui="none", visible=1, color="#00ACC1", actions=["collapsible"])
+# 10
+id_variables  = pipeline.add_node(parent=id_solver,    name="Variables",
+                                 subui="none", visible=1, color="#00ACC1", actions=["collapsible"])
 
 # first node is active initially
 state.selection=["1"]
@@ -1394,11 +1399,14 @@ with SinglePageWithDrawerLayout(server) as layout:
 
         # set config file data in config_str
         update_config_str()
+        show_add_variable_dialog()
+       
         #this necessary here?
         #state.dirty('jsonData')
 
     log("info", "setting up layout content")
     with layout.content:
+      
 
       # create the tabs
       with vuetify.VTabs(v_model=("active_tab", 0), right=True):
@@ -1406,6 +1414,7 @@ with SinglePageWithDrawerLayout(server) as layout:
         vuetify.VTab("History")
         vuetify.VTab("Config")
         vuetify.VTab("Logs")
+        vuetify.VTab("Variables")
 
       with vuetify.VContainer(
             fluid=True,
@@ -1493,13 +1502,13 @@ with SinglePageWithDrawerLayout(server) as layout:
                 ):
                   with trame.SizeObserver("figure_size"):
                     html_figure = tramematplotlib.Figure(style="position: absolute")
-                    ctrl.update_figure = html_figure.update
-
-            # Third Tab
+                    ctrl.update_figure = html_figure.update            # Third Tab
             config_tab()
 
             # Fourth Tab
             logs_tab()
+             # Fifth Tab
+            variables_tab()
 
 
     log("info", "finalizing drawer layout")
@@ -1707,3 +1716,13 @@ def main():
 
 if __name__=="__main__":
     main()
+
+
+# 10
+# id_variables  = pipeline.add_node(parent=id_solver,    name="Variables",
+#                                  subui="none", visible=1, color="#00ACC1", actions=["collapsible"])
+
+
+# Add the Variables tab to the layout
+# layout.content.append(variables_tab)
+

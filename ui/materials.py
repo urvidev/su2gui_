@@ -22,20 +22,12 @@ state, ctrl = server.state, server.controller
 UNIVERSAL_GAS_CONSTANT = 8.314
 
 # for dialog cards:
-#1. define a boolean to show//hide the dialog
-#2. define dialog_card
-#3. define an update for the boolean to show/hide the dialog
-#4. initialize the dialog by calling it in the singlepagewithdrawerlayout
-#5. couple to a button in the main ui dialog
-
 # show the material dialog cards
 state.show_materials_dialog_card_fluid = False
 state.show_materials_dialog_card_viscosity = False
 state.show_materials_dialog_card_heatcapacity = False
 state.show_materials_dialog_card_conductivity = False
 
-#label_1 = markdown.Markdown(classes="pa-0 ma-0",content=("var_name", "**formula1 =** $a \\cdot x^2$"))
-#label_2 = markdown.Markdown(classes="pa-0 ma-0",content=("var_name", "**formula2 =** $b \\cdot x^2$"))
 #content1=("varname","**f=** $a \\cdot x^2$")
 # nijso TODO markdown text test #
 #mdstring = """
@@ -91,10 +83,7 @@ LMaterialsConductivityComp= [
   {"text": "Constant value", "value": 0, "json": "CONSTANT_CONDUCTIVITY"},
 ]
 
-# Initialize LMaterialsFluid based on the physics_comp_idx
-# This will be properly set when physics is initialized
-# LMaterialsFluid will be set based on the physics_comp_idx in the update_material function
-# Initially we'll use the incompressible values
+
 state.LMaterialsFluid = LMaterialsFluidIncomp.copy()
 
 # set the state variables using the json data from the config file

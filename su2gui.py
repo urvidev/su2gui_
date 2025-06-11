@@ -1513,7 +1513,7 @@ with SinglePageWithDrawerLayout(server) as layout:
 # -----------------------------------------------------------------------------
 
 def check_su2(path=None):
-  """Check if SU2 is installed and accessible, prompt for path if not."""
+  
   
   # First check if a path is provided as a parameter
   if path:

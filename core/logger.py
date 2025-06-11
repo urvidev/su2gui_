@@ -68,16 +68,7 @@ logging.getLogger().addHandler(custom_handler)
 
 #################### LOGS -> SU2GUI TAB ####################
 def log(type :str, message, **kwargs):
-    """
-    Appends a message to the "su2gui.log" file and LOGS Tab.
-
-    Args:
-        type (str) : Type of message to be appended, like INFO, ERROR, WARN, etc - Any
-        message (str): The message to append to the log.
-        detail (str) : Details of message, Not necessary 
-
-    """
-
+    
     message = str(message)
     message += "  \n" 
     if "detail" in kwargs:

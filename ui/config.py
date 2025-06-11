@@ -62,7 +62,7 @@ def add_new_property():
             if ',' in value:
                value =  value.split(',')
             else:
-               value = value.split()            # Convert each item to an appropriate type
+               value = value.split()            
             value = [v.strip() for v in value]
             value = [int(v) if isinstance(v, str) and v.isdigit() else v for v in value]
     state.new_config_key = state.new_config_key.upper().strip()

@@ -11,8 +11,16 @@ from trame.widgets import vuetify
 from core.logger import log
 from core.variables import *
 from core.su2_py_wrapper import save_json_cfg_py_file
+import json
+import json
 
 state, ctrl = server.state, server.controller
+
+# Initialize core data structures first (critical for preventing NoneType errors)
+if not hasattr(state, 'variables') or state.variables is None:
+    state.variables = {}
+if not hasattr(state, 'derived_parameters') or state.derived_parameters is None:
+    state.derived_parameters = {}
 
 # Initialize default state variables for Variables
 state.variables_list = []
@@ -75,9 +83,9 @@ state.can_delete_variable = False
 state.can_delete_derived = False
 state.can_generate_wrapper = True
 
-# # Dialog open state tracking
-# state.variable_dialog_open = False
-# state.derived_dialog_open = False
+# Dialog open state tracking
+state.variable_dialog_open = False
+state.derived_dialog_open = False
 
 # Form validation state variables
 state.variable_form_valid = False
@@ -95,6 +103,76 @@ state.LVariablesMain = [
     {"text": "Python Wrapper", "value": 2},
 ]
 
+###############################################################
+# ACTION HANDLER FUNCTIONS (must be defined before UI components)
+###############################################################
+
+def edit_variable_action(event, item_name):
+    """Handle variable edit with proper deserialization"""
+    # Handle JS-to-Python data conversion
+    item_name = json.loads(item_name) if isinstance(item_name, str) else item_name
+    
+    if not hasattr(state, 'variables') or item_name not in state.variables:
+        log("error", f"Variable {item_name} not found")
+        return
+    
+    var = state.variables[item_name]
+    state.edit_variable_name = item_name
+    state.edit_variable_value = var.get("value", "")
+    state.edit_variable_description = var.get("description", "")
+    state.edit_variable_dialog = True
+
+def delete_variable_action(event, item_name):
+    """Handle variable delete with proper deserialization"""
+    # Handle JS-to-Python data conversion
+    item_name = json.loads(item_name) if isinstance(item_name, str) else item_name
+    
+    if not hasattr(state, 'variables') or item_name not in state.variables:
+        log("error", f"Variable {item_name} not found")
+        return
+    
+    # Show confirmation dialog
+    state.item_to_delete = item_name
+    state.item_type_to_delete = "variable"
+    state.confirm_delete_variable_dialog = True
+
+def edit_derived_parameter_action(event, item_name):
+    """Handle derived parameter edit with proper deserialization"""
+    # Handle JS-to-Python data conversion
+    item_name = json.loads(item_name) if isinstance(item_name, str) else item_name
+    
+    if not hasattr(state, 'derived_parameters') or item_name not in state.derived_parameters:
+        log("error", f"Derived parameter {item_name} not found")
+        return
+    
+    param = state.derived_parameters[item_name]
+    state.edit_derived_parameter_name = item_name
+    state.edit_derived_parameter_definition = param.get("definition", "")
+    state.edit_derived_parameter_description = param.get("description", "")
+    state.edit_derived_parameter_dialog = True
+
+def delete_derived_parameter_action(event, item_name):
+    """Handle derived parameter delete with proper deserialization"""
+    # Handle JS-to-Python data conversion
+    item_name = json.loads(item_name) if isinstance(item_name, str) else item_name
+    
+    if not hasattr(state, 'derived_parameters') or item_name not in state.derived_parameters:
+        log("error", f"Derived parameter {item_name} not found")
+        return
+      # Show confirmation dialog
+    state.item_to_delete = item_name
+    state.item_type_to_delete = "derived_parameter"
+    state.confirm_delete_derived_parameter_dialog = True
+
+def handle_click(action, *args):
+    """Generic click handler for UI actions"""
+    try:
+        if hasattr(ctrl, action) and callable(getattr(ctrl, action)):
+            getattr(ctrl, action)(*args)
+        else:
+            log("error", f"Action {action} not found in controller")
+    except Exception as e:
+        log("error", f"Error handling click action {action}: {str(e)}")
 
 ###############################################################
 # PIPELINE CARD : VARIABLES
@@ -129,8 +207,7 @@ def variables_subcard():
             with vuetify.VRow():
                 with vuetify.VCol(cols="12"):
                     vuetify.VCardSubtitle("Define variables that can be used in the configuration")
-                    
-                    # Variables data table with action buttons
+                      # Variables data table with action buttons
                     with vuetify.VDataTable(
                         headers=[
                             {"text": "Name", "value": "name", "sortable": True},
@@ -141,19 +218,22 @@ def variables_subcard():
                         items=("variables_list", []),
                         elevation=1,
                         items_per_page=5,
-                    ):                        # Add action buttons for each row
+                        item_key="name",
+                        __properties=[("v_slot_item_actions", "v-slot:item.actions")]
+                    ):# Add action buttons for each row
                         with vuetify.Template(v_slot_item_actions="{ item }"):
                             vuetify.VBtn(
                                 icon=True,
                                 small=True,
                                 color="primary",
-                                click="editVariableAction(item.name)",
+                                click=(ctrl.edit_variable, "[$event, item.name]"),
                                 children=[vuetify.VIcon("mdi-pencil")]
                             )
                             vuetify.VBtn(
                                 icon=True,
                                 small=True,
-                                color="error",                                click="deleteVariableAction(item.name)",
+                                color="error",
+                                click=(ctrl.delete_variable, "[$event, item.name]"),
                                 children=[vuetify.VIcon("mdi-delete")]
                             )
                     with vuetify.VRow(classes="mt-4"):
@@ -172,8 +252,7 @@ def variables_subcard():
             with vuetify.VRow():
                 with vuetify.VCol(cols="12"):
                     vuetify.VCardSubtitle("Define derived parameters based on variables")
-                    
-                    # Derived Parameters data table with action buttons
+                      # Derived Parameters data table with action buttons
                     with vuetify.VDataTable(
                         headers=[
                             {"text": "Name", "value": "name", "sortable": True},
@@ -184,19 +263,22 @@ def variables_subcard():
                         items=("derived_parameters_list", []),
                         elevation=1,
                         items_per_page=5,
-                    ):                        # Add action buttons for each row
+                        item_key="name",
+                        __properties=[("v_slot_item_actions", "v-slot:item.actions")]
+                    ):# Add action buttons for each row
                         with vuetify.Template(v_slot_item_actions="{ item }"):
                             vuetify.VBtn(
                                 icon=True,
                                 small=True,
                                 color="primary",
-                                click="editDerivedParameterAction(item.name)",
+                                click=(ctrl.edit_derived_parameter, "[$event, item.name]"),
                                 children=[vuetify.VIcon("mdi-pencil")]
                             )
                             vuetify.VBtn(
                                 icon=True,
                                 small=True,
-                                color="error",                                click="deleteDerivedParameterAction(item.name)",
+                                color="error",
+                                click=(ctrl.delete_derived_parameter, "[$event, item.name]"),
                                 children=[vuetify.VIcon("mdi-delete")]
                             )
                     with vuetify.VRow(classes="mt-4"):
@@ -286,15 +368,14 @@ def variables_dialog_cards():
                 vuetify.VBtn(
                     "Cancel",
                     color="grey",
-                    text=True,
-                    click="cancelVariableDialog = !cancelVariableDialog"
+                    text=True,                    click="cancelVariableDialog = !cancelVariableDialog"
                 )
                 vuetify.VBtn(
                     "Save",
                     color="primary",
                     text=True,
                     disabled=("!variable_form_valid",),
-                    click="addVariable"
+                    click="addVariable = !addVariable"
                 )
     
     # Edit Variable Dialog
@@ -334,15 +415,14 @@ def variables_dialog_cards():
                 vuetify.VBtn(
                     "Cancel",
                     color="grey",
-                    text=True,
-                    click="edit_variable_dialog = false"
+                    text=True,                    click="edit_variable_dialog = false"
                 )
                 vuetify.VBtn(
                     "Update",
                     color="primary",
                     text=True,
                     disabled=("!edit_variable_form_valid",),
-                    click="updateVariable"
+                    click="updateVariable = !updateVariable"
                 )
     
     # Add Derived Parameter Dialog
@@ -385,15 +465,14 @@ def variables_dialog_cards():
                 vuetify.VBtn(
                     "Cancel",
                     color="grey",
-                    text=True,
-                    click="cancelDerivedDialog = !cancelDerivedDialog"
+                    text=True,                    click="cancelDerivedDialog = !cancelDerivedDialog"
                 )
                 vuetify.VBtn(
                     "Save",
                     color="primary",
                     text=True,
                     disabled=("!derived_form_valid",),
-                    click="addDerivedParameter"
+                    click="addDerivedParameter = !addDerivedParameter"
                 )
       
     # Edit Derived Parameter Dialog
@@ -438,11 +517,10 @@ def variables_dialog_cards():
                     click="edit_derived_parameter_dialog = false"
                 )
                 vuetify.VBtn(
-                    "Update",
-                    color="primary",
+                    "Update",                    color="primary",
                     text=True,
                     disabled=("!edit_derived_form_valid",),
-                    click="updateDerivedParameter"
+                    click="updateDerivedParameter = !updateDerivedParameter"
                 )
 
     # Confirmation dialog for deleting variables
@@ -464,9 +542,8 @@ def variables_dialog_cards():
                 )
                 vuetify.VBtn(
                     "Delete",
-                    color="error",
-                    text=True,
-                    click="confirmDeleteVariable"
+                    color="error",                    text=True,
+                    click="confirmDeleteVariable = !confirmDeleteVariable"
                 )
 
     # Confirmation dialog for deleting derived parameters
@@ -483,14 +560,13 @@ def variables_dialog_cards():
                 vuetify.VBtn(
                     "Cancel",
                     color="grey",
-                    text=True,
-                    click="confirm_delete_derived_parameter_dialog = false"
+                    text=True,                    click="confirm_delete_derived_parameter_dialog = false"
                 )
                 vuetify.VBtn(
                     "Delete",
                     color="error",
                     text=True,
-                    click="confirmDeleteDerivedParameter"
+                    click="confirmDeleteDerivedParameter = !confirmDeleteDerivedParameter"
                 )
 
 ###############################################################
@@ -518,6 +594,8 @@ def update_variables_main_selection(variables_main_selection, **kwargs):
 def update_variables_list(variables, **kwargs):
     """Update the variables list for the UI when variables change."""
     variables_list = []
+    print(state.variables_list)
+    print(state.variables)
     if hasattr(variables, '__iter__') and not isinstance(variables, bool) and isinstance(variables, dict):
         for name, var in variables.items():
             if isinstance(var, dict):  # Make sure var is a dictionary
@@ -723,9 +801,8 @@ def add_variable_ui(**kwargs):
     if not valid:
         log("error", f"Failed to add variable: {error_msg}")
         return
-    
-    # Check if variable already exists
-    if hasattr(state, 'variables') and state.new_variable_name in state.variables:
+      # Check if variable already exists
+    if hasattr(state, 'variables') and state.variables and state.new_variable_name in state.variables:
         log("error", f"Variable '{state.new_variable_name}' already exists")
         return
       # Add the variable
@@ -796,9 +873,8 @@ def add_derived_parameter_ui(**kwargs):
     if not valid:
         log("error", f"Failed to add derived parameter: {error_msg}")
         return
-    
-    # Check if parameter already exists
-    if hasattr(state, 'derived_parameters') and state.new_derived_parameter_name in state.derived_parameters:
+      # Check if parameter already exists
+    if hasattr(state, 'derived_parameters') and state.derived_parameters and state.new_derived_parameter_name in state.derived_parameters:
         log("error", f"Derived parameter '{state.new_derived_parameter_name}' already exists")
         return
       # Add the derived parameter
@@ -928,60 +1004,8 @@ def generate_python_wrapper_ui(**kwargs):
         log("info", f"Python wrapper generated: {filename_py_export}")
     except Exception as e:
         log("error", f"Failed to generate Python wrapper: {str(e)}")
-    finally:
-        # Re-enable button
+    finally:        # Re-enable button
         state.can_generate_wrapper = True
-
-# Add action controller functions for handling table actions
-@state.change("editVariableAction")
-def edit_variable_action(item_name):
-    """Edit a variable from the table action."""
-    if not hasattr(state, 'variables') or item_name not in state.variables:
-        log("error", f"Variable {item_name} not found")
-        return
-    
-    var = state.variables[item_name]
-    state.edit_variable_name = item_name
-    state.edit_variable_value = var.get("value", "")
-    state.edit_variable_description = var.get("description", "")
-    state.edit_variable_dialog = True
-
-@state.change("deleteVariableAction")
-def delete_variable_action(item_name):
-    """Delete a variable from the table action."""
-    if not hasattr(state, 'variables') or item_name not in state.variables:
-        log("error", f"Variable {item_name} not found")
-        return
-    
-    # Show confirmation dialog
-    state.item_to_delete = item_name
-    state.item_type_to_delete = "variable"
-    state.confirm_delete_variable_dialog = True
-
-@state.change("editDerivedParameterAction")
-def edit_derived_parameter_action(item_name):
-    """Edit a derived parameter from the table action."""
-    if not hasattr(state, 'derived_parameters') or item_name not in state.derived_parameters:
-        log("error", f"Derived parameter {item_name} not found")
-        return
-    
-    param = state.derived_parameters[item_name]
-    state.edit_derived_parameter_name = item_name
-    state.edit_derived_parameter_definition = param.get("definition", "")
-    state.edit_derived_parameter_description = param.get("description", "")
-    state.edit_derived_parameter_dialog = True
-
-@state.change("deleteDerivedParameterAction")
-def delete_derived_parameter_action(item_name):
-    """Delete a derived parameter from the table action."""
-    if not hasattr(state, 'derived_parameters') or item_name not in state.derived_parameters:
-        log("error", f"Derived parameter {item_name} not found")
-        return
-    
-    # Show confirmation dialog
-    state.item_to_delete = item_name
-    state.item_type_to_delete = "derived_parameter"
-    state.confirm_delete_derived_parameter_dialog = True
 
 # Add confirmation handlers for delete operations
 @state.change("confirmDeleteVariable")
@@ -1111,3 +1135,13 @@ def variables_tab():
         variables_card()
         variables_subcard()
         variables_dialog_cards()
+
+###############################################################
+# CONTROLLER REGISTRATION
+###############################################################
+# Register handler methods with the controller
+ctrl.edit_variable = edit_variable_action
+ctrl.delete_variable = delete_variable_action
+ctrl.edit_derived_parameter = edit_derived_parameter_action
+ctrl.delete_derived_parameter = delete_derived_parameter_action
+ctrl.handle_click = handle_click

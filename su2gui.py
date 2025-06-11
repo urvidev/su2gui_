@@ -1357,9 +1357,13 @@ with SinglePageWithDrawerLayout(server) as layout:
         log("info", "initialize mesh card")
         mesh_card()
         mesh_subcard()
-        #
-        log("info", "initialize fileio card")
+        #        log("info", "initialize fileio card")
         fileio_card()
+        #
+        
+        log("info", "initialize variables card")
+        variables_card()
+        variables_subcard()
         #
 
         log("info", "initialize solver card")
@@ -1376,13 +1380,14 @@ with SinglePageWithDrawerLayout(server) as layout:
         materials_dialog_card_fluid()
         materials_dialog_card_viscosity()
         materials_dialog_card_cp()
-        materials_dialog_card_conductivity()
-        # boundaries dialogs
+        materials_dialog_card_conductivity()        # boundaries dialogs
         boundaries_dialog_card_inlet()
         boundaries_dialog_card_outlet()
         boundaries_dialog_card_wall()
         boundaries_dialog_card_farfield()
         boundaries_dialog_card_supersonic_inlet()
+        # variables dialogs
+        variables_dialog_cards()
         # error/warn dialog
         Error_dialog_card()
         Warn_dialog_card()
@@ -1395,26 +1400,20 @@ with SinglePageWithDrawerLayout(server) as layout:
         set_json_initialization()
         set_json_fileio()
         set_json_numerics()
-        set_json_solver()
-
-        # set config file data in config_str
+        set_json_solver()        # set config file data in config_str
         update_config_str()
-        show_add_variable_dialog()
        
         #this necessary here?
         #state.dirty('jsonData')
 
     log("info", "setting up layout content")
     with layout.content:
-      
-
-      # create the tabs
+          # create the tabs
       with vuetify.VTabs(v_model=("active_tab", 0), right=True):
         vuetify.VTab("Geometry")
         vuetify.VTab("History")
         vuetify.VTab("Config")
         vuetify.VTab("Logs")
-        vuetify.VTab("Variables")
 
       with vuetify.VContainer(
             fluid=True,
@@ -1503,12 +1502,8 @@ with SinglePageWithDrawerLayout(server) as layout:
                   with trame.SizeObserver("figure_size"):
                     html_figure = tramematplotlib.Figure(style="position: absolute")
                     ctrl.update_figure = html_figure.update            # Third Tab
-            config_tab()
-
-            # Fourth Tab
+            config_tab()            # Fourth Tab
             logs_tab()
-             # Fifth Tab
-            variables_tab()
 
 
     log("info", "finalizing drawer layout")

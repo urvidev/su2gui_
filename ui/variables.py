@@ -980,8 +980,7 @@ def generate_python_wrapper_ui(**kwargs):
     # Disable button during generation
     state.can_generate_wrapper = False
     
-    try:
-        # Check if case name is defined and not empty
+    try:        # Check if case name is defined and not empty
         if not hasattr(state, 'case_name') or not state.case_name:
             log("info", "Case name is not defined or empty, cannot generate Python wrapper")
             return
@@ -997,8 +996,8 @@ def generate_python_wrapper_ui(**kwargs):
             filename_json_export,
             filename_cfg_export,
             filename_py_export,
-            variables,
-            derived_parameters
+            variables=variables,
+            derived_parameters=derived_parameters
         )
         
         log("info", f"Python wrapper generated: {filename_py_export}")

@@ -36,12 +36,19 @@ state.editDerivedParameter = False
 state.updateDerivedParameter = False
 state.deleteDerivedParameter = False
 state.generatePythonWrapper = False
+state.generatePythonWrapperWithDynamicTemp = False
 state.confirmDeleteVariable = False
 state.confirmDeleteDerivedParameter = False
 # state.showAddVariableDialog = False
 # state.showAddDerivedParameterDialog = False
 # state.showEditVariableDialog = False
 # state.showEditDerivedParameterDialog = False
+
+# Initialize state for dynamic wall temperature
+state.dynamic_temp_enabled = False
+state.dynamic_temp_function = "293.0 + 257.0 * sin(pi * 0.5 * time)"
+state.last_generated_wrapper_path = ""
+state.show_wrapper_path_info = False
 
 # Initialize button click trigger variables  
 state.openVariableDialog = False
@@ -289,14 +296,38 @@ def variables_subcard():
                                 click="openDerivedDialog = !openDerivedDialog",
                                 disabled=("!can_add_derived",),
                                 block=True
-                            )
-
-    # Python Wrapper subcard - shows when variables_main_selection is 2
+                            )    # Python Wrapper subcard - shows when variables_main_selection is 2
     with ui_subcard(title="Python Wrapper", sub_ui_name="subvariables_wrapper"):
         with vuetify.VContainer(fluid=True):
             with vuetify.VRow():
                 with vuetify.VCol(cols="12"):
                     vuetify.VCardSubtitle("Generate Python wrapper for SU2 execution")
+                    
+                    # DYNAMIC WALL TEMPERATURE SECTION
+                    with vuetify.VRow(classes="mt-2"):
+                        with vuetify.VCol(cols="12"):
+                            vuetify.VCardTitle("Dynamic Wall Temperature for Airfoil", classes="text-h6")
+                            vuetify.VCardText(
+                                "Configure time-varying wall temperature conditions for the 'airfoil' marker"
+                            )
+                            
+                            vuetify.VSwitch(
+                                v_model=("dynamic_temp_enabled", False),
+                                label="Enable Dynamic Wall Temperature",
+                                color="primary"
+                            )
+                            
+                            with vuetify.VRow(v_if=("dynamic_temp_enabled",)):
+                                with vuetify.VCol(cols="12"):
+                                    vuetify.VTextField(
+                                        v_model=("dynamic_temp_function", "293.0 + 257.0 * sin(pi * 0.5 * time)"),
+                                        label="Temperature Function",
+                                        hint="Use 'time' as the variable",
+                                        outlined=True,
+                                        dense=True
+                                    )
+                    
+                    # WRAPPER GENERATION SECTION
                     with vuetify.VRow(classes="mt-4"):
                         with vuetify.VCol(cols="8"):
                             vuetify.VTextField(
@@ -307,19 +338,55 @@ def variables_subcard():
                             )
                         with vuetify.VCol(cols="4"):
                             vuetify.VBtn(
-                                "Generate Wrapper",
+                                "Generate Standard Wrapper",
                                 color="primary",
                                 click="generatePythonWrapper = !generatePythonWrapper",
                                 disabled=("!can_generate_wrapper",),
                                 block=True
                             )
                     
+                    # DYNAMIC TEMPERATURE GENERATION BUTTON
+                    with vuetify.VRow(classes="mt-2", v_if=("dynamic_temp_enabled",)):
+                        with vuetify.VCol(cols="12"):
+                            vuetify.VBtn(
+                                "Generate with Dynamic Temp",
+                                color="secondary",
+                                click="generatePythonWrapperWithDynamicTemp = !generatePythonWrapperWithDynamicTemp",
+                                disabled=("!can_generate_wrapper",),
+                                block=True
+                            )
+                      # INFO TEXT
                     with vuetify.VRow(classes="mt-2"):
                         with vuetify.VCol(cols="12"):
                             vuetify.VCardText(
                                 "This will generate a Python script that includes all defined variables "
                                 "and derived parameters for use with SU2 simulations."
                             )
+                      # GENERATED FILE PATH DISPLAY
+                    with vuetify.VRow(classes="mt-2", v_if=("show_wrapper_path_info",)):
+                        with vuetify.VCol(cols="12"):
+                            with vuetify.VAlert(
+                                type="success",
+                                outlined=True,
+                                dense=True,
+                                dismissible=True,
+                                v_model=("show_wrapper_path_info", False)
+                            ):
+                                with vuetify.VRow(no_gutters=True):
+                                    with vuetify.VCol(cols="12"):
+                                        vuetify.VIcon("mdi-check-circle", color="success", classes="mr-2")
+                                        "Wrapper generated successfully!"
+                                    with vuetify.VCol(cols="12", classes="mt-1"):
+                                        vuetify.VTextField(
+                                            v_model=("last_generated_wrapper_path", ""),
+                                            label="Generated File Location",
+                                            readonly=True,
+                                            dense=True,
+                                            outlined=True,
+                                            prepend_icon="mdi-file-code",
+                                            append_icon="mdi-content-copy",
+                                            click_append="copyPathToClipboard = !copyPathToClipboard"
+                                        )
 
 ###############################################################
 # Dialog boxes for Variables Management
@@ -976,11 +1043,11 @@ def generate_python_wrapper_ui(**kwargs):
     if not state.can_generate_wrapper:
         log("warning", "Cannot generate wrapper - button is disabled")
         return
-    
-    # Disable button during generation
+      # Disable button during generation
     state.can_generate_wrapper = False
     
-    try:        # Check if case name is defined and not empty
+    try:
+        # Check if case name is defined and not empty
         if not hasattr(state, 'case_name') or not state.case_name:
             log("info", "Case name is not defined or empty, cannot generate Python wrapper")
             return
@@ -991,19 +1058,81 @@ def generate_python_wrapper_ui(**kwargs):
         
         variables = get_variables_dict()
         derived_parameters = get_derived_parameters_dict()
+          # For standard wrapper, disable dynamic temperature
+        dynamic_wall_temp_markers = {}
         
-        save_json_cfg_py_file(
+        # Save files with standard wrapper
+        generated_wrapper_path = save_json_cfg_py_file(
             filename_json_export,
             filename_cfg_export,
             filename_py_export,
             variables=variables,
-            derived_parameters=derived_parameters
+            derived_parameters=derived_parameters,
+            dynamic_wall_temp_markers=dynamic_wall_temp_markers
         )
         
-        log("info", f"Python wrapper generated: {filename_py_export}")
+        if generated_wrapper_path:
+            state.last_generated_wrapper_path = generated_wrapper_path
+            state.show_wrapper_path_info = True
+            log("info", f"Standard wrapper generated successfully!")
+            log("info", f"Location: {generated_wrapper_path}")
+        else:
+            log("error", "Failed to generate standard wrapper")
+            state.show_wrapper_path_info = False
     except Exception as e:
         log("error", f"Failed to generate Python wrapper: {str(e)}")
-    finally:        # Re-enable button
+    finally:
+        # Re-enable button
+        state.can_generate_wrapper = True
+
+@state.change("generatePythonWrapperWithDynamicTemp")
+def generate_python_wrapper_with_dynamic_temp_ui(**kwargs):
+    """Generate Python wrapper with dynamic temperature from the UI."""
+    # Check button state
+    if not state.can_generate_wrapper:
+        log("warning", "Cannot generate wrapper - button is disabled")
+        return
+    
+    # Disable button during generation
+    state.can_generate_wrapper = False
+    
+    try:
+        # Check if case name is defined and not empty
+        if not hasattr(state, 'case_name') or not state.case_name:
+            log("info", "Case name is not defined or empty, cannot generate Python wrapper")
+            return
+        
+        filename_json_export = getattr(state, 'filename_json_export', 'config.json')
+        filename_cfg_export = getattr(state, 'filename_cfg_export', 'config.cfg')
+        filename_py_export = getattr(state, 'python_wrapper_filename', 'run_su2.py')
+        
+        variables = get_variables_dict()
+        derived_parameters = get_derived_parameters_dict()
+          # Create dynamic wall temperature markers dictionary
+        dynamic_wall_temp_markers = {"airfoil": state.dynamic_temp_function}
+        
+        # Save files with dynamic temperature
+        generated_wrapper_path = save_json_cfg_py_file(
+            filename_json_export,
+            filename_cfg_export,
+            filename_py_export,
+            variables=variables,
+            derived_parameters=derived_parameters,
+            dynamic_wall_temp_markers=dynamic_wall_temp_markers
+        )
+        
+        if generated_wrapper_path:
+            state.last_generated_wrapper_path = generated_wrapper_path
+            state.show_wrapper_path_info = True
+            log("info", f"Dynamic temperature wrapper generated successfully!")
+            log("info", f"Location: {generated_wrapper_path}")
+        else:
+            log("error", "Failed to generate dynamic temperature wrapper")
+            state.show_wrapper_path_info = False
+    except Exception as e:
+        log("error", f"Failed to generate Python wrapper with dynamic temperature: {str(e)}")
+    finally:
+        # Re-enable button
         state.can_generate_wrapper = True
 
 # Add confirmation handlers for delete operations
@@ -1048,6 +1177,15 @@ def validate_derived_parameter_input(name, definition):
         return False, "Parameter name must contain only letters, numbers, and underscores"
     return True, ""
 
+@state.change("copyPathToClipboard")
+def copy_path_to_clipboard(**kwargs):
+    """Copy the generated wrapper path to clipboard."""
+    try:
+        # This is a simple notification - actual clipboard copy would need browser API
+        log("info", f"Path copied to clipboard: {state.last_generated_wrapper_path}")
+    except Exception as e:
+        log("error", f"Failed to copy path: {str(e)}")
+
 
 ###############################################################
 # MAIN TAB FUNCTION FOR VARIABLES
@@ -1070,3 +1208,4 @@ ctrl.delete_variable = delete_variable_action
 ctrl.edit_derived_parameter = edit_derived_parameter_action
 ctrl.delete_derived_parameter = delete_derived_parameter_action
 ctrl.handle_click = handle_click
+ctrl.generate_python_wrapper_with_dynamic_temp = generate_python_wrapper_with_dynamic_temp_ui

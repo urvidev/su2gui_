@@ -20,6 +20,7 @@ from ui.uicard import ui_card, ui_subcard, ui_card_children_only, ui_card_parent
 from trame.widgets import vuetify
 from core.su2_json import *
 from ui.materials import *
+from core.logger import log
 state, ctrl = server.state, server.controller
 
 # for dialog cards:
@@ -312,8 +313,7 @@ def boundaries_dialog_card_wall():
                 dense=True,
                 outlined=True,
                 classes="py-0 my-0",
-            )
-        # temperature
+            )        # temperature
         with vuetify.VContainer(fluid=True,v_if=("boundaries_wall_idx==0"),):
           # ####################################################### #
           with vuetify.VRow(classes="py-0 my-0"):
@@ -324,6 +324,16 @@ def boundaries_dialog_card_wall():
                 # the name of the list box
                 label="Temperature [K]",
                 #    label= ("selectedBoundaryIndex","none"),
+              )
+          # Add dynamic temperature wrapper button for temperature walls
+          with vuetify.VRow(classes="py-1 my-1"):
+            with vuetify.VCol(cols="8", classes="py-1 my-1"):              vuetify.VBtn(
+                "Generate Dynamic Temp Wrapper",
+                click=ctrl.generate_python_wrapper_with_dynamic_temp,
+                color="secondary",
+                outlined=True,
+                small=True,
+                block=True,
               )
         # heat flux
         with vuetify.VContainer(fluid=True,v_if=("boundaries_wall_idx==1"),):
@@ -366,6 +376,61 @@ def boundaries_dialog_card_wall():
 # switch the visibility of the popup window on/off
 def update_boundaries_dialog_card_wall():
     state.show_boundaries_dialog_card_wall = not state.show_boundaries_dialog_card_wall
+
+# Controller function for the button
+@ctrl.trigger("generate_python_wrapper_with_dynamic_temp")
+def generate_python_wrapper_with_dynamic_temp():
+    """Generate Python wrapper with dynamic wall temperature for the selected boundary."""
+    try:
+        if not hasattr(state, 'case_name') or not state.case_name:
+            log("error", "Case name not defined. Cannot generate wrapper.")
+            return
+            
+        if not hasattr(state, 'selectedBoundaryName') or not state.selectedBoundaryName:
+            log("error", "No boundary selected. Cannot generate wrapper.")
+            return
+            
+        # Get current temperature value
+        base_temp = getattr(state, 'boundaries_inc_temperature_idx', 300.0)
+        boundary_name = state.selectedBoundaryName
+        
+        log("info", f"Generating dynamic temperature wrapper for boundary '{boundary_name}' with base temperature {base_temp}K")
+        
+        # Update JSON data to include required markers for dynamic temperature
+        if not hasattr(state, 'jsonData'):
+            state.jsonData = {}
+            
+        # Set isothermal marker with base temperature
+        state.jsonData['MARKER_ISOTHERMAL'] = [(boundary_name, base_temp)]
+        
+        # Set Python custom marker for dynamic control
+        if 'MARKER_PYTHON_CUSTOM' not in state.jsonData:
+            state.jsonData['MARKER_PYTHON_CUSTOM'] = []
+        if boundary_name not in state.jsonData['MARKER_PYTHON_CUSTOM']:
+            state.jsonData['MARKER_PYTHON_CUSTOM'].append(boundary_name)
+        
+        # Import the wrapper generation function
+        from core.su2_py_wrapper import generate_dynamic_temperature_wrapper
+        
+        # Generate the wrapper with dynamic temperature
+        generate_dynamic_temperature_wrapper(
+            boundary_marker=boundary_name,
+            base_temperature=base_temp,
+            filename_py_export=getattr(state, 'python_wrapper_filename', 'run_su2_dynamic.py')
+        )
+        
+        # Also save the updated configuration files
+        from core.su2_io import save_json_cfg_file
+        save_json_cfg_file(
+            filename_json_export=getattr(state, 'filename_json_export', 'config.json'),
+            filename_cfg_export=getattr(state, 'filename_cfg_export', 'config.cfg')
+        )
+        
+        log("info", f"Dynamic temperature wrapper generated successfully for {boundary_name}")
+        log("info", f"Configuration updated with MARKER_ISOTHERMAL and MARKER_PYTHON_CUSTOM")
+        
+    except Exception as e:
+        log("error", f"Failed to generate dynamic temperature wrapper: {str(e)}")
 
 #2. define dialog_card
 ######################################################################

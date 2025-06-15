@@ -3,17 +3,17 @@
 su2_py_wrapper.py
 
 Utilities to turn an in-memory SU2 JSON description into
- • a SU2‐style *.cfg text file,
- • a copy of the JSON for reference,
- • and a self-contained Python driver (wrapper) that can be executed
+ - a SU2-style *.cfg text file,
+ - a copy of the JSON for reference,
+ - and a self-contained Python driver (wrapper) that can be executed
    directly with MPI or the CPython interpreter.
 
 The generated wrapper follows the same layout as `run_su2.py`:
-    ├─ imports (pysu2, mpi4py, numpy, …)
-    ├─ user-defined “Variables” section
-    ├─ “Derived parameters” helper functions (optional stubs)
-    ├─ a single triple-quoted `config_settings` string
-    └─ a `main()` that constructs and runs a `pysu2.CSinglezoneDriver`.
+    - imports (pysu2, mpi4py, numpy, ...)
+    - user-defined "Variables" section
+    - "Derived parameters" helper functions (optional stubs)
+    - a single triple-quoted `config_settings` string
+    - a `main()` that constructs and runs a `pysu2.CSinglezoneDriver`.
 """
 
 from __future__ import annotations
@@ -78,10 +78,10 @@ def _to_cfg_value(value: Any,
     Convert a Python value coming from the JSON description into the exact
     literal that SU2 expects inside the .cfg file.
 
-    • `None`    ->  ignored  (returns *None*)
-    • `bool`    ->  YES / NO
-    • sequence  ->  "(a, b, c)"
-    • other     ->  string with variable substitution
+    - `None`    ->  ignored  (returns *None*)
+    - `bool`    ->  YES / NO
+    - sequence  ->  "(a, b, c)"
+    - other     ->  string with variable substitution
     """
     if value is None or (isinstance(value, str) and value.lower() == "none"):
         return None
@@ -106,6 +106,7 @@ def generate_python_wrapper(
         *,
         variables: Dict[str, Any] | None = None,
         derived_parameters: Dict[str, str] | None = None,
+        dynamic_wall_temp_markers: Dict[str, str] | None = None,
         output_dir: str | Path | None = None,
         config_filename: str = "config.cfg"
 ) -> Path:
@@ -115,10 +116,10 @@ def generate_python_wrapper(
     *variables*          dict of named variables to inject at the top
     *derived_parameters* mapping name → short documentation string
     *output_dir*         override default "user/<case_name>" directory
-    *config_filename*    name of the config file to reference
-    """
+    *config_filename*    name of the config file to reference    """
     variables = variables or {}
     derived_parameters = derived_parameters or {}
+    dynamic_wall_temp_markers = dynamic_wall_temp_markers or {}
 
     log("info", "Generating Python wrapper script")
     filename_py_export = Path(filename_py_export).with_suffix(".py")
@@ -194,6 +195,235 @@ def generate_python_wrapper(
     log("info", f"Python wrapper generated at: {target_file}")
     return target_file
 
+def generate_dynamic_temperature_wrapper(
+        boundary_marker: str,
+        base_temperature: float = 300.0,
+        filename_py_export: str | Path = "run_su2_dynamic.py",
+        *,
+        amplitude: float = 257.0,
+        frequency: float = 0.5,
+        output_dir: str | Path | None = None,
+        variables: Dict[str, Any] | None = None,
+        temperature_formula: str | None = None
+) -> Path:
+    """
+    Generate a Python wrapper with dynamic wall temperature control.
+    
+    *boundary_marker*    name of the wall boundary marker
+    *base_temperature*   base temperature in Kelvin
+    *filename_py_export* output Python filename
+    *amplitude*          temperature oscillation amplitude
+    *frequency*          oscillation frequency factor
+    *output_dir*         override default "user/<case_name>" directory
+    *variables*          dictionary of user-defined variables for the temperature function
+    *temperature_formula* custom temperature formula string (e.g., "BASE_TEMPERATURE + AMPLITUDE * sin(pi * FREQUENCY * time)")    """
+    log("info", f"Generating dynamic temperature wrapper for marker: {boundary_marker}")
+    
+    # Initialize defaults
+    variables = variables or {}
+    if temperature_formula is None:
+        temperature_formula = "BASE_TEMPERATURE + AMPLITUDE * math.sin(math.pi * FREQUENCY * time)"
+    
+    # Set default variables if not provided by user
+    default_variables = {
+        "BASE_TEMPERATURE": base_temperature,
+        "AMPLITUDE": amplitude,
+        "FREQUENCY": frequency
+    }
+    
+    # Merge user variables with defaults (user variables take precedence)
+    all_variables = {**default_variables, **variables}
+    
+    filename_py_export = Path(filename_py_export).with_suffix(".py")
+    
+    # decide where to put the result
+    if output_dir is None:
+        output_dir = BASE_DIR / "user" / state.case_name
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    target_file = output_dir / filename_py_export
+    log("info", f"Output file: {target_file}")
+
+    # ---------- write file -------------------------------------------------
+    with target_file.open("w", encoding="utf-8") as f:
+        # shebang & imports
+        f.write("#!/usr/bin/env python\n\n")
+        f.write("import pysu2\n")
+        f.write("import numpy as np\n")
+        f.write("from mpi4py import MPI\n")
+        f.write("import math, os, sys\n\n")        # dynamic temperature parameters
+        f.write("# ----------------------\n# Dynamic Temperature Parameters\n")
+        
+        # Write all user-defined and default variables
+        for var_name, var_value in all_variables.items():
+            f.write(f"{var_name} = {var_value!r}  # {var_name}\n")
+        
+        f.write(f"WALL_MARKER = '{boundary_marker}'  # Wall boundary marker name\n\n")
+
+        # configuration file reference
+        f.write("# ----------------------\n# SU2 configuration file path\n")
+        f.write("config_file = 'config.cfg'\n\n")        # dynamic temperature function
+        f.write("def calculate_wall_temperature(time):\n")
+        f.write("    \"\"\"Calculate dynamic wall temperature based on time using user-defined formula.\"\"\"\n")
+        
+        # Replace 'sin' with 'math.sin' and 'pi' with 'math.pi' if needed
+        formula_with_math = temperature_formula
+        formula_with_math = formula_with_math.replace("sin(", "math.sin(")
+        formula_with_math = formula_with_math.replace("cos(", "math.cos(")
+        formula_with_math = formula_with_math.replace("tan(", "math.tan(")
+        formula_with_math = formula_with_math.replace("exp(", "math.exp(")
+        formula_with_math = formula_with_math.replace("log(", "math.log(")
+        formula_with_math = formula_with_math.replace("sqrt(", "math.sqrt(")
+        formula_with_math = formula_with_math.replace(" pi ", " math.pi ")
+        formula_with_math = formula_with_math.replace("(pi ", "(math.pi ")
+        formula_with_math = formula_with_math.replace(" pi)", " math.pi)")
+        formula_with_math = formula_with_math.replace("*pi*", "*math.pi*")
+        
+        f.write(f"    return {formula_with_math}\n\n")
+
+        # main function with dynamic temperature control
+        f.write(
+            "def main():\n"
+            "    comm = MPI.COMM_WORLD\n"
+            "    rank = comm.Get_rank()\n"
+            "    \n"
+            "    # Check if config file exists\n"
+            "    if not os.path.exists(config_file):\n"
+            "        if rank == 0:\n"
+            "            print(f'Error: Configuration file {config_file} not found')\n"
+            "        return 1\n"
+            "    \n"
+            "    try:\n"
+            "        # Initialize SU2 driver\n"
+            "        driver = pysu2.CSinglezoneDriver(config_file, 1, comm)\n"
+            "        \n"
+            "        # Get number of time iterations from config or set default\n"
+            "        nTimeIter = 100  # Adjust based on your simulation needs\n"
+            "        \n"        "        if rank == 0:\n"
+        "            print(f'Starting dynamic temperature simulation with {nTimeIter} iterations')\n"
+        "            print(f'Wall marker: {WALL_MARKER}')\n"
+        )
+        
+        # Add dynamic printing of all variables
+        for var_name in all_variables.keys():
+            if var_name != "WALL_MARKER":  # Don't print wall marker twice
+                f.write(f"            print(f'{var_name}: {{{var_name}}}')\n")
+        
+        f.write(
+        "            print(f'Temperature formula: {temperature_formula}')\n"
+            "        \n"
+            "        # Time iteration loop with dynamic temperature\n"
+            "        for TimeIter in range(nTimeIter):\n"
+            "            \n"
+            "            # Preprocess for current time step\n"
+            "            driver.Preprocess(TimeIter)\n"
+            "            \n"
+            "            # Calculate current wall temperature\n"
+            "            current_time = float(TimeIter)  # You may need to get actual time from driver\n"
+            "            wall_temp = calculate_wall_temperature(current_time)\n"
+            "            \n"
+            "            # Set dynamic wall temperature for all vertices on the wall marker\n"
+            "            # Note: This requires SU2 to be compiled with Python custom BC support\n"
+            "            try:\n"
+            "                # Get marker ID for the wall boundary\n"
+            "                marker_id = driver.GetMarkerIndex(WALL_MARKER)\n"
+            "                if marker_id >= 0:\n"
+            "                    # Get number of vertices on this marker\n"
+            "                    n_vertices = driver.GetNumberVertices(marker_id)\n"
+            "                    \n"
+            "                    # Set temperature for each vertex\n"
+            "                    for vertex_id in range(n_vertices):\n"
+            "                        driver.SetMarkerCustomTemperature(marker_id, vertex_id, wall_temp)\n"
+            "                    \n"
+            "                    # Update boundary conditions\n"
+            "                    driver.BoundaryConditionsUpdate()\n"
+            "                    \n"
+            "                    if rank == 0 and TimeIter % 10 == 0:\n"
+            "                        print(f'  Time step {TimeIter}: Wall temperature = {wall_temp:.2f}K')\n"
+            "                else:\n"
+            "                    if rank == 0:\n"
+            "                        print(f'Warning: Wall marker \"{WALL_MARKER}\" not found')\n"
+            "            except Exception as e:\n"
+            "                if rank == 0:\n"
+            "                    print(f'Warning: Could not set custom temperature: {e}')\n"
+            "                    print('Continuing with static temperature...')\n"
+            "            \n"
+            "            # Run iteration\n"
+            "            driver.Run()\n"
+            "            \n"
+            "            # Postprocess\n"
+            "            driver.Postprocess()\n"
+            "            \n"
+            "            # Update for next iteration\n"
+            "            driver.Update()\n"
+            "        \n"
+            "        if rank == 0:\n"
+            "            print('Dynamic temperature simulation completed successfully')\n"
+            "            \n"
+            "    except Exception as exc:\n"
+            "        if rank == 0:\n"
+            "            print(f'Error running SU2 with dynamic temperature: {exc}')\n"
+            "        return 1\n"
+            "    \n"
+            "    return 0\n\n\n"
+            "if __name__ == '__main__':\n"
+            "    raise SystemExit(main())\n"
+        )
+
+    # make executable on Unix-likes
+    try:
+        target_file.chmod(target_file.stat().st_mode | 0o111)
+    except PermissionError:
+        pass
+
+    log("info", f"Dynamic temperature wrapper generated at: {target_file}")
+    
+    # Also generate updated config file with Python custom markers
+    _generate_dynamic_config_file(boundary_marker, base_temperature, output_dir)
+    
+    return target_file
+
+def _generate_dynamic_config_file(boundary_marker: str, base_temperature: float, output_dir: Path):
+    """Generate updated config file with Python custom boundary conditions."""
+    try:
+        config_path = output_dir / "config.cfg"
+        
+        # Read existing config or create new one
+        config_lines = []
+        if config_path.exists():
+            with config_path.open("r", encoding="utf-8") as f:
+                config_lines = f.readlines()
+        
+        # Check if we need to add/update markers
+        has_isothermal = False
+        has_python_custom = False
+        
+        for i, line in enumerate(config_lines):
+            if line.strip().startswith("MARKER_ISOTHERMAL"):
+                # Update existing isothermal marker
+                config_lines[i] = f"MARKER_ISOTHERMAL= ({boundary_marker}, {base_temperature})\n"
+                has_isothermal = True
+            elif line.strip().startswith("MARKER_PYTHON_CUSTOM"):
+                # Update existing python custom marker
+                config_lines[i] = f"MARKER_PYTHON_CUSTOM= ({boundary_marker})\n"
+                has_python_custom = True
+        
+        # Add missing markers
+        if not has_isothermal:
+            config_lines.append(f"MARKER_ISOTHERMAL= ({boundary_marker}, {base_temperature})\n")
+        if not has_python_custom:
+            config_lines.append(f"MARKER_PYTHON_CUSTOM= ({boundary_marker})\n")
+        
+        # Write updated config
+        with config_path.open("w", encoding="utf-8") as f:
+            f.writelines(config_lines)
+            
+        log("info", f"Updated config file with dynamic temperature markers: {config_path}")
+        
+    except Exception as e:
+        log("warn", f"Could not update config file: {e}")
+
 # ----------------------------------------------------------------------
 # higher-level convenience wrapper used by the rest of the code-base
 # ----------------------------------------------------------------------
@@ -202,19 +432,22 @@ def save_json_cfg_py_file(
         filename_cfg_export : str | Path,
         filename_py_export : str | Path,
         *,
-        variables: Dict[str, Any] | None = None,
-        derived_parameters: Dict[str, str] | None = None
-) -> None:
+        variables: Dict[str, Any] | None = None,        derived_parameters: Dict[str, str] | None = None,
+        dynamic_wall_temp_markers: Dict[str, str] | None = None
+) -> str | None:
     """
     Dump JSON + SU2 .cfg + wrapper.py files side-by-side into
     `user/<state.case_name>/`.
+    
+    Returns the absolute path of the generated Python wrapper file.
     """
     if not getattr(state, "case_name", ""):
         log("warn", "Case name not defined – nothing exported")
-        return
+        return None
 
     variables = variables or {}
     derived_parameters = derived_parameters or {}
+    dynamic_wall_temp_markers = dynamic_wall_temp_markers or {}
 
     export_dir = BASE_DIR / "user" / state.case_name
     export_dir.mkdir(parents=True, exist_ok=True)
@@ -234,16 +467,35 @@ def save_json_cfg_py_file(
             if cfg_val is None:
                 continue
             fp.write(f"{k}= {cfg_val}\n")
-    log("info", f"Wrote .cfg    → {cfg_path}")    # create *.py wrapper next to them
-    generate_python_wrapper(
-        state.jsonData,
-        filename_py_export=filename_py_export,
-        variables=variables,
-        derived_parameters=derived_parameters,
-        output_dir=export_dir,
-        config_filename=Path(filename_cfg_export).with_suffix(".cfg").name,
-    )
+    log("info", f"Wrote .cfg    → {cfg_path}")
+    
+    # create *.py wrapper next to them and capture the path
+    python_wrapper_path = None    # Choose which wrapper to generate based on dynamic_wall_temp_markers
+    if dynamic_wall_temp_markers:
+        # Use the dynamic temperature wrapper for airfoil marker
+        for marker, temp_function in dynamic_wall_temp_markers.items():
+            python_wrapper_path = generate_dynamic_temperature_wrapper(
+                boundary_marker=marker,
+                base_temperature=300.0,  # Default base temp
+                filename_py_export=filename_py_export,
+                output_dir=export_dir,
+                variables=variables,
+                temperature_formula=temp_function
+            )
+            break  # Only process the first marker for now
+    else:        # Use standard wrapper
+        python_wrapper_path = generate_python_wrapper(
+            state.jsonData,
+            filename_py_export=filename_py_export,
+            variables=variables,
+            derived_parameters=derived_parameters,
+            dynamic_wall_temp_markers=dynamic_wall_temp_markers,
+            output_dir=export_dir,
+            config_filename=Path(filename_cfg_export).with_suffix(".cfg").name,
+        )
 
     # simple counter to help your own bookkeeping
     state.counter = getattr(state, "counter", 0) + 1
     log("info", f"Export counter: {state.counter}")
+    
+    return str(python_wrapper_path) if python_wrapper_path else None

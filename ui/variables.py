@@ -47,6 +47,7 @@ state.confirmDeleteDerivedParameter = False
 # Initialize state for dynamic wall temperature
 state.dynamic_temp_enabled = False
 state.dynamic_temp_function = "293.0 + 257.0 * sin(pi * 0.5 * time)"
+state.dynamic_temp_wrapper_filename = "run_su2.py"
 state.last_generated_wrapper_path = ""
 state.show_wrapper_path_info = False
 
@@ -302,37 +303,67 @@ def variables_subcard():
             with vuetify.VRow():
                 with vuetify.VCol(cols="12"):
                     vuetify.VCardSubtitle("Generate Python wrapper for SU2 execution")
-                    
-                    # DYNAMIC WALL TEMPERATURE SECTION
+                      # DYNAMIC WALL TEMPERATURE SECTION
                     with vuetify.VRow(classes="mt-2"):
                         with vuetify.VCol(cols="12"):
                             vuetify.VCardTitle("Dynamic Wall Temperature for Airfoil", classes="text-h6")
                             vuetify.VCardText(
                                 "Configure time-varying wall temperature conditions for the 'airfoil' marker"
                             )
-                            
                             vuetify.VSwitch(
                                 v_model=("dynamic_temp_enabled", False),
                                 label="Enable Dynamic Wall Temperature",
                                 color="primary"
                             )
                             
-                            with vuetify.VRow(v_if=("dynamic_temp_enabled",)):
+                            with vuetify.VRow(v_if=("dynamic_temp_enabled",), classes="mt-2"):
                                 with vuetify.VCol(cols="12"):
                                     vuetify.VTextField(
                                         v_model=("dynamic_temp_function", "293.0 + 257.0 * sin(pi * 0.5 * time)"),
                                         label="Temperature Function",
-                                        hint="Use 'time' as the variable",
-                                        outlined=True,
-                                        dense=True
+                                        hint="Use 'time' as the variable. Example: 293.0 + 257.0 * sin(pi * 0.5 * time)",                                        outlined=True,
+                                        dense=False,
+                                        rows=3,
+                                        multiline=True,
+                                        classes="py-1"
                                     )
+                                
+                                with vuetify.VCol(cols="12", classes="pt-0"):
+                                    vuetify.VCard(
+                                        elevation=1,
+                                        classes="pa-2",
+                                        children=[
+                                            vuetify.VCardText(
+                                                "Common functions: sin(), cos(), pi, time",
+                                                classes="text-caption"
+                                            )                                        ]
+                                    )
+                    
+                    # DYNAMIC TEMPERATURE WRAPPER FILENAME SECTION
+                    with vuetify.VRow(classes="mt-4", v_if=("dynamic_temp_enabled",)):
+                        with vuetify.VCol(cols="8"):
+                            vuetify.VTextField(
+                                v_model=("dynamic_temp_wrapper_filename", "run_su2.py"),
+                                label="Dynamic Temperature Wrapper Filename",
+                                hint="e.g., run_su2.normal.py, run_su2_dynamic.py",
+                                outlined=True,
+                                dense=True,
+                            )
+                        with vuetify.VCol(cols="4"):
+                            vuetify.VBtn(
+                                "Generate with Dynamic Temp",
+                                color="secondary",
+                                click="generatePythonWrapperWithDynamicTemp = !generatePythonWrapperWithDynamicTemp",
+                                disabled=("!can_generate_wrapper",),
+                                block=True
+                            )
                     
                     # WRAPPER GENERATION SECTION
                     with vuetify.VRow(classes="mt-4"):
                         with vuetify.VCol(cols="8"):
                             vuetify.VTextField(
                                 v_model=("python_wrapper_filename", "run_su2.py"),
-                                label="Python wrapper filename",
+                                label="Standard Python wrapper filename",
                                 outlined=True,
                                 dense=True,
                             )
@@ -341,17 +372,6 @@ def variables_subcard():
                                 "Generate Standard Wrapper",
                                 color="primary",
                                 click="generatePythonWrapper = !generatePythonWrapper",
-                                disabled=("!can_generate_wrapper",),
-                                block=True
-                            )
-                    
-                    # DYNAMIC TEMPERATURE GENERATION BUTTON
-                    with vuetify.VRow(classes="mt-2", v_if=("dynamic_temp_enabled",)):
-                        with vuetify.VCol(cols="12"):
-                            vuetify.VBtn(
-                                "Generate with Dynamic Temp",
-                                color="secondary",
-                                click="generatePythonWrapperWithDynamicTemp = !generatePythonWrapperWithDynamicTemp",
                                 disabled=("!can_generate_wrapper",),
                                 block=True
                             )
@@ -1104,7 +1124,7 @@ def generate_python_wrapper_with_dynamic_temp_ui(**kwargs):
         
         filename_json_export = getattr(state, 'filename_json_export', 'config.json')
         filename_cfg_export = getattr(state, 'filename_cfg_export', 'config.cfg')
-        filename_py_export = getattr(state, 'python_wrapper_filename', 'run_su2.py')
+        filename_py_export = getattr(state, 'dynamic_temp_wrapper_filename', 'run_su2.py')
         
         variables = get_variables_dict()
         derived_parameters = get_derived_parameters_dict()

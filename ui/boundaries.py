@@ -37,6 +37,22 @@ state.show_boundaries_dialog_card_wall = False
 state.show_boundaries_dialog_card_farfield = False
 state.show_boundaries_dialog_card_supersonic_inlet = False
 
+# Initialize custom temperature state variables
+state.enable_custom_temperature = True
+state.custom_temperature_function = "BASE_TEMPERATURE + AMPLITUDE * sin(pi * FREQUENCY * time)"
+state.temperature_amplitude = 257.0
+state.temperature_frequency = 0.5
+
+# Initialize required state variables if not present
+# if not hasattr(state, 'case_name') or not state.case_name:
+#     state.case_name = "default_case"
+if not hasattr(state, 'python_wrapper_filename'):
+    state.python_wrapper_filename = "run_su2_dynamic.py"
+if not hasattr(state, 'filename_json_export'):
+    state.filename_json_export = "config.json"
+if not hasattr(state, 'filename_cfg_export'):
+    state.filename_cfg_export = "config.cfg"
+
 state.boundaries_main_idx = 0
 
 # note that boundary information is stored in the state.BCDictList
@@ -322,18 +338,68 @@ def boundaries_dialog_card_wall():
                 # What to do when something is selected
                 v_model=("boundaries_inc_temperature_idx", 300.0),
                 # the name of the list box
-                label="Temperature [K]",
+                label="Base Temperature [K]",
                 #    label= ("selectedBoundaryIndex","none"),
               )
-          # Add dynamic temperature wrapper button for temperature walls
+          
+          # Custom Temperature Section
           with vuetify.VRow(classes="py-1 my-1"):
-            with vuetify.VCol(cols="8", classes="py-1 my-1"):              vuetify.VBtn(
+            with vuetify.VCol(cols="8", classes="py-1 my-1"):              vuetify.VCheckbox(
+                v_model=("enable_custom_temperature", True),
+                label="Enable Custom Temperature Function",
+                dense=True,
+                classes="py-0 my-0"
+              )
+            # Custom temperature function input (only shown when checkbox is enabled)
+          with vuetify.VContainer(fluid=True, v_if=("enable_custom_temperature",)):
+            with vuetify.VRow(classes="py-0 my-0"):
+              with vuetify.VCol(cols="8", classes="py-1 my-1 pr-0 mr-0"):
+                vuetify.VTextField(
+                  v_model=("custom_temperature_function", "BASE_TEMPERATURE + AMPLITUDE * sin(pi * FREQUENCY * time)"),
+                  label="Temperature Function",
+                  hint="Use variables like BASE_TEMPERATURE, AMPLITUDE, FREQUENCY, time",
+                  persistent_hint=True,
+                  classes="py-0 my-0"
+                )
+            
+            with vuetify.VRow(classes="py-0 my-0"):
+              with vuetify.VCol(cols="4", classes="py-1 my-1 pr-1 mr-1"):
+                vuetify.VTextField(
+                  v_model=("temperature_amplitude", 257.0),
+                  label="Amplitude [K]",
+                  type="number",
+                  dense=True,
+                  classes="py-0 my-0"
+                )
+              with vuetify.VCol(cols="4", classes="py-1 my-1 pl-1 ml-1"):
+                vuetify.VTextField(
+                  v_model=("temperature_frequency", 0.5),
+                  label="Frequency",
+                  type="number", 
+                  dense=True,
+                  classes="py-0 my-0"
+                )
+          #   # Add dynamic temperature wrapper button for temperature walls
+          # with vuetify.VRow(classes="py-1 my-1"):
+          #   with vuetify.VCol(cols="8", classes="py-1 my-1"):              vuetify.VBtn(
+          #       "Generate Dynamic Temp Wrapper",
+          #       click=ctrl.generate_python_wrapper_with_dynamic_temp,
+          #       color="secondary",
+          #       outlined=True,
+          #       small=True,
+          #       block=True
+          #     )
+          
+          # Test button to verify clicks work
+          with vuetify.VRow(classes="py-1 my-1"):
+            with vuetify.VCol(cols="8", classes="py-1 my-1"):
+              vuetify.VBtn(
                 "Generate Dynamic Temp Wrapper",
-                click=ctrl.generate_python_wrapper_with_dynamic_temp,
-                color="secondary",
+                click=ctrl.test_button_click,
+                color="primary",
                 outlined=True,
                 small=True,
-                block=True,
+                block=True
               )
         # heat flux
         with vuetify.VContainer(fluid=True,v_if=("boundaries_wall_idx==1"),):
@@ -378,23 +444,53 @@ def update_boundaries_dialog_card_wall():
     state.show_boundaries_dialog_card_wall = not state.show_boundaries_dialog_card_wall
 
 # Controller function for the button
-@ctrl.trigger("generate_python_wrapper_with_dynamic_temp")
 def generate_python_wrapper_with_dynamic_temp():
     """Generate Python wrapper with dynamic wall temperature for the selected boundary."""
-    try:
+    print("here")
+    log("info", "=== BUTTON CLICKED: Dynamic Temperature Wrapper Generation Started ===")
+    try:        
+        print("Generating dynamic temperature wrapper...")
+        # Check if case_name exists, if not create a default one
         if not hasattr(state, 'case_name') or not state.case_name:
-            log("error", "Case name not defined. Cannot generate wrapper.")
-            return
+            state.case_name = "default_case"
+            log("info", f"No case name found, using default: {state.case_name}")
             
         if not hasattr(state, 'selectedBoundaryName') or not state.selectedBoundaryName:
-            log("error", "No boundary selected. Cannot generate wrapper.")
-            return
+            log("warning", "No boundary selected. Using default boundary name 'airfoil'")
+            state.selectedBoundaryName = "airfoil"
+
+        print(f"Selected boundary: {state.selectedBoundaryName}")
             
-        # Get current temperature value
+        # Get current temperature value and custom settings
         base_temp = getattr(state, 'boundaries_inc_temperature_idx', 300.0)
         boundary_name = state.selectedBoundaryName
+        amplitude = getattr(state, 'temperature_amplitude', 257.0)
+        frequency = getattr(state, 'temperature_frequency', 0.5)
+        custom_function = getattr(state, 'custom_temperature_function', 
+                                 "BASE_TEMPERATURE + AMPLITUDE * math.sin(math.pi * FREQUENCY * time)")
         
-        log("info", f"Generating dynamic temperature wrapper for boundary '{boundary_name}' with base temperature {base_temp}K")
+        log("info", f"Generating dynamic temperature wrapper for boundary '{boundary_name}'")
+        log("info", f"Base temperature: {base_temp}K, Amplitude: {amplitude}K, Frequency: {frequency}")
+        log("info", f"Custom function: {custom_function}")
+        
+        # Get variables from the Variables UI if available
+        variables = {}
+        if hasattr(state, 'variables') and state.variables:
+            # Convert variables to a simple dict for the wrapper
+            for var_name, var_data in state.variables.items():
+                if isinstance(var_data, dict) and 'value' in var_data:
+                    variables[var_name] = var_data['value']
+                else:
+                    variables[var_name] = var_data
+        
+        # Add the temperature-specific variables
+        variables.update({
+            'BASE_TEMPERATURE': base_temp,
+            'AMPLITUDE': amplitude,
+            'FREQUENCY': frequency
+        })
+        
+        log("info", f"Using variables: {variables}")
         
         # Update JSON data to include required markers for dynamic temperature
         if not hasattr(state, 'jsonData'):
@@ -412,25 +508,51 @@ def generate_python_wrapper_with_dynamic_temp():
         # Import the wrapper generation function
         from core.su2_py_wrapper import generate_dynamic_temperature_wrapper
         
-        # Generate the wrapper with dynamic temperature
-        generate_dynamic_temperature_wrapper(
+        # Generate the wrapper with dynamic temperature and variables
+        wrapper_path = generate_dynamic_temperature_wrapper(
             boundary_marker=boundary_name,
             base_temperature=base_temp,
-            filename_py_export=getattr(state, 'python_wrapper_filename', 'run_su2_dynamic.py')
+            filename_py_export=getattr(state, 'python_wrapper_filename', 'run_su2_dynamic.py'),
+            amplitude=amplitude,
+            frequency=frequency,
+            variables=variables,
+            temperature_formula=custom_function
         )
         
-        # Also save the updated configuration files
-        from core.su2_io import save_json_cfg_file
-        save_json_cfg_file(
-            filename_json_export=getattr(state, 'filename_json_export', 'config.json'),
-            filename_cfg_export=getattr(state, 'filename_cfg_export', 'config.cfg')
-        )
+        # Also save the updated configuration files - import function that exists
+        try:
+            from core.su2_io import save_json_cfg_file
+            save_json_cfg_file(
+                filename_json_export=getattr(state, 'filename_json_export', 'config.json'),
+                filename_cfg_export=getattr(state, 'filename_cfg_export', 'config.cfg')
+            )
+        except ImportError:
+            # If su2_io doesn't exist, save JSON manually
+            import json
+            from pathlib import Path
+            export_dir = Path(__file__).parent.parent / "user" / state.case_name
+            export_dir.mkdir(parents=True, exist_ok=True)
+            json_path = export_dir / "config.json"
+            with json_path.open("w", encoding="utf-8") as fp:
+                json.dump(state.jsonData, fp, indent=4, sort_keys=True, ensure_ascii=False)
+            log("info", f"Wrote JSON to {json_path}")
         
         log("info", f"Dynamic temperature wrapper generated successfully for {boundary_name}")
+        log("info", f"Wrapper file: {wrapper_path}")
         log("info", f"Configuration updated with MARKER_ISOTHERMAL and MARKER_PYTHON_CUSTOM")
+        
+        # Update state to show the generated wrapper path
+        if hasattr(state, 'last_generated_wrapper_path'):
+            state.last_generated_wrapper_path = str(wrapper_path)
+            state.show_wrapper_path_info = True
         
     except Exception as e:
         log("error", f"Failed to generate dynamic temperature wrapper: {str(e)}")
+        import traceback
+        log("error", f"Traceback: {traceback.format_exc()}")
+
+# Register the function with the controller
+ctrl.generate_python_wrapper_with_dynamic_temp = generate_python_wrapper_with_dynamic_temp
 
 #2. define dialog_card
 ######################################################################
@@ -529,7 +651,7 @@ def boundaries_dialog_card_supersonic_inlet():
         with vuetify.VContainer(fluid=True):
           # ####################################################### #
           with vuetify.VRow(classes="py-0 my-0"):
-            with vuetify.VCol(cols="8", classes="py-1 my-1 pr-0 mr-0"):
+            with vuetify.VCol(cols="12", classes="py-1 my-1 pr-0 mr-0"):
               vuetify.VTextField(
                 # What to do when something is selected
                 v_model=("boundaries_inc_spr_temperature_idx", 300.0),
@@ -800,6 +922,23 @@ def update_boundaries_main(selectedBoundaryName, **kwargs):
     if selectedBoundaryName != 'internal':
       state.boundaries_main_idx = get_boundaries_main_idx_from_name(selectedBoundaryName)
       state.dirty('boundaries_main_idx')
+      
+      # Load custom temperature settings if they exist for this boundary
+      if hasattr(state, 'selectedBoundaryIndex') and state.selectedBoundaryIndex is not None:
+          boundary_data = state.BCDictList[state.selectedBoundaryIndex]
+          
+          # Load custom temperature settings
+          state.enable_custom_temperature = boundary_data.get('custom_temperature', False)
+          state.custom_temperature_function = boundary_data.get(
+              'temperature_function', 
+              "BASE_TEMPERATURE + AMPLITUDE * sin(pi * FREQUENCY * time)"
+          )
+          state.temperature_amplitude = boundary_data.get('temperature_amplitude', 257.0)
+          state.temperature_frequency = boundary_data.get('temperature_frequency', 0.5)
+          
+          log("info", f"Loaded custom temperature settings for {selectedBoundaryName}: "
+                     f"enabled={state.enable_custom_temperature}, "
+                     f"function={state.custom_temperature_function}")
 
 
 
@@ -1182,5 +1321,61 @@ def update_material(boundaries_spr_ny_idx, **kwargs):
 def update_material(boundaries_spr_nz_idx, **kwargs):
     state.BCDictList[state.selectedBoundaryIndex]['bc_velocity_normal'][2] = boundaries_spr_nz_idx
     #log("info", f"BCDictList =  = {state.BCDictList}")
+
+# #################################################################### #
+# ########################## CUSTOM TEMPERATURE ######################### #
+# #################################################################### #
+
+@state.change("enable_custom_temperature")
+def update_custom_temperature_enabled(enable_custom_temperature, **kwargs):
+    """Update boundary conditions when custom temperature is enabled/disabled."""
+    log("info", f"Custom temperature enabled: {enable_custom_temperature}")
+    if hasattr(state, 'selectedBoundaryIndex') and state.selectedBoundaryIndex is not None:
+        if enable_custom_temperature:
+            # Mark this boundary as having custom temperature
+            state.BCDictList[state.selectedBoundaryIndex]['custom_temperature'] = True
+            state.BCDictList[state.selectedBoundaryIndex]['temperature_function'] = getattr(
+                state, 'custom_temperature_function', 
+                "BASE_TEMPERATURE + AMPLITUDE * sin(pi * FREQUENCY * time)"
+            )
+        else:
+            # Remove custom temperature settings
+            if 'custom_temperature' in state.BCDictList[state.selectedBoundaryIndex]:
+                del state.BCDictList[state.selectedBoundaryIndex]['custom_temperature']
+            if 'temperature_function' in state.BCDictList[state.selectedBoundaryIndex]:
+                del state.BCDictList[state.selectedBoundaryIndex]['temperature_function']
+
+@state.change("custom_temperature_function")
+def update_custom_temperature_function(custom_temperature_function, **kwargs):
+    """Update the temperature function when it changes."""
+    log("info", f"Custom temperature function: {custom_temperature_function}")
+    if (hasattr(state, 'selectedBoundaryIndex') and state.selectedBoundaryIndex is not None and
+        getattr(state, 'enable_custom_temperature', False)):
+        state.BCDictList[state.selectedBoundaryIndex]['temperature_function'] = custom_temperature_function
+
+@state.change("temperature_amplitude")
+def update_temperature_amplitude(temperature_amplitude, **kwargs):
+    """Update temperature amplitude parameter."""
+    log("info", f"Temperature amplitude: {temperature_amplitude}")
+    if (hasattr(state, 'selectedBoundaryIndex') and state.selectedBoundaryIndex is not None and
+        getattr(state, 'enable_custom_temperature', False)):
+        state.BCDictList[state.selectedBoundaryIndex]['temperature_amplitude'] = temperature_amplitude
+
+@state.change("temperature_frequency")
+def update_temperature_frequency(temperature_frequency, **kwargs):
+    """Update temperature frequency parameter."""
+    log("info", f"Temperature frequency: {temperature_frequency}")
+    if (hasattr(state, 'selectedBoundaryIndex') and state.selectedBoundaryIndex is not None and
+        getattr(state, 'enable_custom_temperature', False)):
+        state.BCDictList[state.selectedBoundaryIndex]['temperature_frequency'] = temperature_frequency
+
+# Test function to verify button clicks work
+def test_button_click():
+    log("info", "TEST BUTTON CLICKED SUCCESSFULLY!")
+    generate_python_wrapper_with_dynamic_temp()
+    print("Button click test successful!")
+
+# Register the test function
+ctrl.test_button_click = test_button_click
 
 

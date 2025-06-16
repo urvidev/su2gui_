@@ -252,36 +252,107 @@ def generate_dynamic_temperature_wrapper(
         f.write("import pysu2\n")
         f.write("import numpy as np\n")
         f.write("from mpi4py import MPI\n")
-        f.write("import math, os, sys\n\n")        # dynamic temperature parameters
+        f.write("import math, os, sys\n\n")
+        
+        # dynamic temperature parameters
         f.write("# ----------------------\n# Dynamic Temperature Parameters\n")
         
         # Write all user-defined and default variables
         for var_name, var_value in all_variables.items():
-            f.write(f"{var_name} = {var_value!r}  # {var_name}\n")
+            if isinstance(var_value, str):
+                # Try to convert string to number if it looks numeric
+                try:
+                    if '.' in var_value or 'e' in var_value.lower():
+                        # Try as float
+                        numeric_value = float(var_value)
+                        f.write(f"{var_name} = {numeric_value}  # {var_name}\n")
+                    elif var_value.isdigit() or (var_value.startswith('-') and var_value[1:].isdigit()):
+                        # Try as integer
+                        numeric_value = int(var_value)
+                        f.write(f"{var_name} = {numeric_value}  # {var_name}\n")
+                    else:
+                        # Keep as string
+                        f.write(f"{var_name} = '{var_value}'  # {var_name}\n")
+                except ValueError:
+                    # Not a valid number, keep as string
+                    f.write(f"{var_name} = '{var_value}'  # {var_name}\n")
+            elif isinstance(var_value, (int, float)):
+                f.write(f"{var_name} = {var_value}  # {var_name}\n")
+            else:
+                f.write(f"{var_name} = {var_value}  # {var_name}\n")
         
-        f.write(f"WALL_MARKER = '{boundary_marker}'  # Wall boundary marker name\n\n")
+        f.write(f"WALL_MARKER = '{boundary_marker}'  # Wall boundary marker name\n")
+        f.write(f"temperature_formula = '{temperature_formula}'  # Temperature formula\n\n")
 
         # configuration file reference
         f.write("# ----------------------\n# SU2 configuration file path\n")
-        f.write("config_file = 'config.cfg'\n\n")        # dynamic temperature function
+        f.write("config_file = 'config.cfg'\n\n")
+        
+        # Define available mathematical functions and constants
+        f.write("# ----------------------\n# Available math functions and constants\n")
+        f.write("def get_math_functions():\n")
+        f.write("    \"\"\"Return a dictionary of available math functions and constants.\"\"\"\n")
+        f.write("    math_functions = {\n")
+        f.write("        # Constants\n")
+        f.write("        'pi': math.pi,\n")
+        f.write("        'e': math.e,\n")
+        f.write("        'inf': math.inf,\n")
+        f.write("        'nan': math.nan,\n")
+        f.write("        # Functions\n")
+        f.write("        'sin': math.sin,\n")
+        f.write("        'cos': math.cos,\n")
+        f.write("        'tan': math.tan,\n")
+        f.write("        'asin': math.asin,\n")
+        f.write("        'acos': math.acos,\n")
+        f.write("        'atan': math.atan,\n")
+        f.write("        'atan2': math.atan2,\n")
+        f.write("        'sinh': math.sinh,\n")
+        f.write("        'cosh': math.cosh,\n")
+        f.write("        'tanh': math.tanh,\n")
+        f.write("        'exp': math.exp,\n")
+        f.write("        'log': math.log,\n")
+        f.write("        'log10': math.log10,\n")
+        f.write("        'sqrt': math.sqrt,\n")
+        f.write("        'pow': math.pow,\n")
+        f.write("        'abs': abs,\n")
+        f.write("        'ceil': math.ceil,\n")
+        f.write("        'floor': math.floor,\n")
+        f.write("        'round': round,\n")
+        f.write("        'min': min,\n")
+        f.write("        'max': max,\n")
+        f.write("        'degrees': math.degrees,\n")
+        f.write("        'radians': math.radians,\n")
+        f.write("    }\n")
+        f.write("    return math_functions\n\n")
+        
+        # Parse and validate formula
+        f.write("def parse_formula(formula, time_value):\n")
+        f.write("    \"\"\"Parse and evaluate the temperature formula safely.\"\"\"\n")
+        f.write("    # Get all available math functions\n")
+        f.write("    math_funcs = get_math_functions()\n")
+        f.write("    \n")
+        f.write("    # Create a local context with variables and time\n")
+        f.write("    context = {**globals(), **math_funcs, 'time': time_value}\n")
+        f.write("    \n")
+        f.write("    # Remove any potentially dangerous functions\n")
+        f.write("    for unsafe_func in ['eval', 'exec', '__import__', 'open', 'globals', 'locals']:\n")
+        f.write("        if unsafe_func in context:\n")
+        f.write("            del context[unsafe_func]\n")
+        f.write("    \n")
+        f.write("    try:\n")
+        f.write("        # Using eval with restricted globals/locals is safer than string manipulation\n")
+        f.write("        result = eval(formula, {}, context)\n")
+        f.write("        return float(result)  # Ensure result is a float\n")
+        f.write("    except Exception as e:\n")
+        f.write("        print(f\"Error evaluating formula '{formula}': {e}\")\n")
+        f.write("        # Return base temperature as fallback\n")
+        f.write("        return BASE_TEMPERATURE\n\n")
+        
+        # dynamic temperature function using the parser
         f.write("def calculate_wall_temperature(time):\n")
         f.write("    \"\"\"Calculate dynamic wall temperature based on time using user-defined formula.\"\"\"\n")
+        f.write("    return parse_formula(temperature_formula, time)\n\n")
         
-        # Replace 'sin' with 'math.sin' and 'pi' with 'math.pi' if needed
-        formula_with_math = temperature_formula
-        formula_with_math = formula_with_math.replace("sin(", "math.sin(")
-        formula_with_math = formula_with_math.replace("cos(", "math.cos(")
-        formula_with_math = formula_with_math.replace("tan(", "math.tan(")
-        formula_with_math = formula_with_math.replace("exp(", "math.exp(")
-        formula_with_math = formula_with_math.replace("log(", "math.log(")
-        formula_with_math = formula_with_math.replace("sqrt(", "math.sqrt(")
-        formula_with_math = formula_with_math.replace(" pi ", " math.pi ")
-        formula_with_math = formula_with_math.replace("(pi ", "(math.pi ")
-        formula_with_math = formula_with_math.replace(" pi)", " math.pi)")
-        formula_with_math = formula_with_math.replace("*pi*", "*math.pi*")
-        
-        f.write(f"    return {formula_with_math}\n\n")
-
         # main function with dynamic temperature control
         f.write(
             "def main():\n"
@@ -300,18 +371,23 @@ def generate_dynamic_temperature_wrapper(
             "        \n"
             "        # Get number of time iterations from config or set default\n"
             "        nTimeIter = 100  # Adjust based on your simulation needs\n"
-            "        \n"        "        if rank == 0:\n"
-        "            print(f'Starting dynamic temperature simulation with {nTimeIter} iterations')\n"
-        "            print(f'Wall marker: {WALL_MARKER}')\n"
+            "        \n"
+            "        if rank == 0:\n"
+            "            print(f'Starting dynamic temperature simulation with {nTimeIter} iterations')\n"
+            "            print(f'Wall marker: {WALL_MARKER}')\n"
         )
         
         # Add dynamic printing of all variables
         for var_name in all_variables.keys():
-            if var_name != "WALL_MARKER":  # Don't print wall marker twice
-                f.write(f"            print(f'{var_name}: {{{var_name}}}')\n")
+            f.write(f"            print(f'{var_name}: {{{var_name}}}')\n")
         
         f.write(
-        "            print(f'Temperature formula: {temperature_formula}')\n"
+            "            print(f'Temperature formula: {temperature_formula}')\n"
+            "            # Test formula with sample time values\n"
+            "            print('Formula test results:')\n"
+            "            for test_time in [0, 1, 5, 10]:\n"
+            "                temp = calculate_wall_temperature(test_time)\n"
+            "                print(f'  t={test_time}: {temp:.2f}K')\n"
             "        \n"
             "        # Time iteration loop with dynamic temperature\n"
             "        for TimeIter in range(nTimeIter):\n"

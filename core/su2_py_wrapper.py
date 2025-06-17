@@ -1,20 +1,4 @@
 #!/usr/bin/env python
-"""
-su2_py_wrapper.py
-
-Utilities to turn an in-memory SU2 JSON description into
- - a SU2-style *.cfg text file,
- - a copy of the JSON for reference,
- - and a self-contained Python driver (wrapper) that can be executed
-   directly with MPI or the CPython interpreter.
-
-The generated wrapper follows the same layout as `run_su2.py`:
-    - imports (pysu2, mpi4py, numpy, ...)
-    - user-defined "Variables" section
-    - "Derived parameters" helper functions (optional stubs)
-    - a single triple-quoted `config_settings` string
-    - a `main()` that constructs and runs a `pysu2.CSinglezoneDriver`.
-"""
 
 from __future__ import annotations
 
@@ -25,20 +9,17 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
-# ----------------------------------------------------------------------
-# optional project-internal imports (will be present when run
-# inside your larger code-base, otherwise they are silently ignored)
-# ----------------------------------------------------------------------
+
 try:
-    from core.su2_json import state  # type: ignore
-    from core.logger import log      # type: ignore
-except ModuleNotFoundError:          # for standalone usage / unit tests
-    class _DummyLogger:              # minimal replacement
+    from core.su2_json import state  
+    from core.logger import log      
+except ModuleNotFoundError:         
+    class _DummyLogger:              
         @staticmethod
         def log(lvl: str, msg: str) -> None:
             print(f"[{lvl.upper():5}] {msg}")
-    log = _DummyLogger().log          # type: ignore
-    state = type("DummyState", (),   # type: ignore
+    log = _DummyLogger().log          
+    state = type("DummyState", (),   
                  {"case_name": "dummy_case",
                   "counter": 0,
                   "jsonData": {},
@@ -51,7 +32,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent      # project root
 # helpers
 # ----------------------------------------------------------------------
 def _flatten(lst: Sequence[Any]) -> List[Any]:
-    """Recursively flatten any nested sequence (list/tuple)."""
+    # Recursively flatten any nested sequence (list/tuple).
     flat: List[Any] = []
     for item in lst:
         if isinstance(item, (list, tuple)):
@@ -74,15 +55,7 @@ def _replace_variables(text: str, variables: Dict[str, Any]) -> str:
 
 def _to_cfg_value(value: Any,
                   variables: Dict[str, Any]) -> str | None:
-    """
-    Convert a Python value coming from the JSON description into the exact
-    literal that SU2 expects inside the .cfg file.
-
-    - `None`    ->  ignored  (returns *None*)
-    - `bool`    ->  YES / NO
-    - sequence  ->  "(a, b, c)"
-    - other     ->  string with variable substitution
-    """
+    
     if value is None or (isinstance(value, str) and value.lower() == "none"):
         return None
 
@@ -110,13 +83,7 @@ def generate_python_wrapper(
         output_dir: str | Path | None = None,
         config_filename: str = "config.cfg"
 ) -> Path:
-    """
-    Build the wrapper file and return its Path.
-
-    *variables*          dict of named variables to inject at the top
-    *derived_parameters* mapping name → short documentation string
-    *output_dir*         override default "user/<case_name>" directory
-    *config_filename*    name of the config file to reference    """
+    
     variables = variables or {}
     derived_parameters = derived_parameters or {}
     dynamic_wall_temp_markers = dynamic_wall_temp_markers or {}
@@ -186,7 +153,7 @@ def generate_python_wrapper(
             "    raise SystemExit(main())\n"
         )
 
-    # make executable on Unix-likes
+    # make executable 
     try:
         target_file.chmod(target_file.stat().st_mode | 0o111)
     except PermissionError:
@@ -206,17 +173,7 @@ def generate_dynamic_temperature_wrapper(
         variables: Dict[str, Any] | None = None,
         temperature_formula: str | None = None
 ) -> Path:
-    """
-    Generate a Python wrapper with dynamic wall temperature control.
     
-    *boundary_marker*    name of the wall boundary marker
-    *base_temperature*   base temperature in Kelvin
-    *filename_py_export* output Python filename
-    *amplitude*          temperature oscillation amplitude
-    *frequency*          oscillation frequency factor
-    *output_dir*         override default "user/<case_name>" directory
-    *variables*          dictionary of user-defined variables for the temperature function
-    *temperature_formula* custom temperature formula string (e.g., "BASE_TEMPERATURE + AMPLITUDE * sin(pi * FREQUENCY * time)")    """
     log("info", f"Generating dynamic temperature wrapper for marker: {boundary_marker}")
     
     # Initialize defaults
@@ -247,7 +204,7 @@ def generate_dynamic_temperature_wrapper(
 
     # ---------- write file -------------------------------------------------
     with target_file.open("w", encoding="utf-8") as f:
-        # shebang & imports
+        # imports
         f.write("#!/usr/bin/env python\n\n")
         f.write("import pysu2\n")
         f.write("import numpy as np\n")
@@ -260,7 +217,7 @@ def generate_dynamic_temperature_wrapper(
         # Write all user-defined and default variables
         for var_name, var_value in all_variables.items():
             if isinstance(var_value, str):
-                # Try to convert string to number if it looks numeric
+                # Try to convert string to number 
                 try:
                     if '.' in var_value or 'e' in var_value.lower():
                         # Try as float
@@ -447,7 +404,7 @@ def generate_dynamic_temperature_wrapper(
             "    raise SystemExit(main())\n"
         )
 
-    # make executable on Unix-likes
+    # make executable 
     try:
         target_file.chmod(target_file.stat().st_mode | 0o111)
     except PermissionError:
@@ -461,7 +418,7 @@ def generate_dynamic_temperature_wrapper(
     return target_file
 
 def _generate_dynamic_config_file(boundary_marker: str, base_temperature: float, output_dir: Path):
-    """Generate updated config file with Python custom boundary conditions."""
+    # Generate updated config file with Python custom boundary conditions.
     try:
         config_path = output_dir / "config.cfg"
         
@@ -511,12 +468,7 @@ def save_json_cfg_py_file(
         variables: Dict[str, Any] | None = None,        derived_parameters: Dict[str, str] | None = None,
         dynamic_wall_temp_markers: Dict[str, str] | None = None
 ) -> str | None:
-    """
-    Dump JSON + SU2 .cfg + wrapper.py files side-by-side into
-    `user/<state.case_name>/`.
     
-    Returns the absolute path of the generated Python wrapper file.
-    """
     if not getattr(state, "case_name", ""):
         log("warn", "Case name not defined – nothing exported")
         return None

@@ -12,7 +12,7 @@ from core.logger import log
 from core.variables import *
 from core.su2_py_wrapper import save_json_cfg_py_file
 import json
-import json
+
 
 state, ctrl = server.state, server.controller
 
@@ -36,7 +36,7 @@ state.editDerivedParameter = False
 state.updateDerivedParameter = False
 state.deleteDerivedParameter = False
 state.generatePythonWrapper = False
-state.generatePythonWrapperWithDynamicTemp = False
+# state.generatePythonWrapperWithDynamicTemp = False  # Moved to boundaries.py
 state.confirmDeleteVariable = False
 state.confirmDeleteDerivedParameter = False
 # state.showAddVariableDialog = False
@@ -44,10 +44,10 @@ state.confirmDeleteDerivedParameter = False
 # state.showEditVariableDialog = False
 # state.showEditDerivedParameterDialog = False
 
-# Initialize state for dynamic wall temperature
-state.dynamic_temp_enabled = False
-state.dynamic_temp_function = "293.0 + 257.0 * sin(pi * 0.5 * time)"
-state.dynamic_temp_wrapper_filename = "run_su2.py"
+# Initialize state for dynamic wall temperature (moved to boundaries.py)
+# state.dynamic_temp_enabled = False
+# state.dynamic_temp_function = "293.0 + 257.0 * sin(pi * 0.5 * time)"
+# state.dynamic_temp_wrapper_filename = "run_su2.py"
 state.last_generated_wrapper_path = ""
 state.show_wrapper_path_info = False
 
@@ -112,12 +112,11 @@ state.LVariablesMain = [
 ]
 
 ###############################################################
-# ACTION HANDLER FUNCTIONS (must be defined before UI components)
+# ACTION HANDLER FUNCTIONS 
 ###############################################################
 
 def edit_variable_action(event, item_name):
-    """Handle variable edit with proper deserialization"""
-    # Handle JS-to-Python data conversion
+    # Handle JSON-to-Python data conversion
     item_name = json.loads(item_name) if isinstance(item_name, str) else item_name
     
     if not hasattr(state, 'variables') or item_name not in state.variables:
@@ -131,8 +130,7 @@ def edit_variable_action(event, item_name):
     state.edit_variable_dialog = True
 
 def delete_variable_action(event, item_name):
-    """Handle variable delete with proper deserialization"""
-    # Handle JS-to-Python data conversion
+    # Handle variable delete    
     item_name = json.loads(item_name) if isinstance(item_name, str) else item_name
     
     if not hasattr(state, 'variables') or item_name not in state.variables:
@@ -145,8 +143,7 @@ def delete_variable_action(event, item_name):
     state.confirm_delete_variable_dialog = True
 
 def edit_derived_parameter_action(event, item_name):
-    """Handle derived parameter edit with proper deserialization"""
-    # Handle JS-to-Python data conversion
+    # Handle derived parameter edit    
     item_name = json.loads(item_name) if isinstance(item_name, str) else item_name
     
     if not hasattr(state, 'derived_parameters') or item_name not in state.derived_parameters:
@@ -160,8 +157,7 @@ def edit_derived_parameter_action(event, item_name):
     state.edit_derived_parameter_dialog = True
 
 def delete_derived_parameter_action(event, item_name):
-    """Handle derived parameter delete with proper deserialization"""
-    # Handle JS-to-Python data conversion
+    # Handle derived parameter delete     
     item_name = json.loads(item_name) if isinstance(item_name, str) else item_name
     
     if not hasattr(state, 'derived_parameters') or item_name not in state.derived_parameters:
@@ -173,7 +169,7 @@ def delete_derived_parameter_action(event, item_name):
     state.confirm_delete_derived_parameter_dialog = True
 
 def handle_click(action, *args):
-    """Generic click handler for UI actions"""
+    # Generic click handler 
     try:
         if hasattr(ctrl, action) and callable(getattr(ctrl, action)):
             getattr(ctrl, action)(*args)
@@ -186,7 +182,7 @@ def handle_click(action, *args):
 # PIPELINE CARD : VARIABLES
 ###############################################################
 def variables_card():
-    """Create the variables management UI card following git tree pattern."""
+    # the variables management 
     with ui_card(title="Variables", ui_name="Variables"):
         log("info", "     ## Variables Management ##")
         
@@ -207,7 +203,7 @@ def variables_card():
 # PIPELINE SUBCARD : VARIABLES
 ###############################################################
 def variables_subcard():
-    """Create the variables management subcards."""
+    # the variables management subcards.
     
     # Variables subcard - shows when variables_main_selection is 0
     with ui_subcard(title="Variables", sub_ui_name="subvariables_vars"):
@@ -254,7 +250,7 @@ def variables_subcard():
                                 block=True
                             )
 
-    # Derived Parameters subcard - shows when variables_main_selection is 1
+    # Derived Parameters subcard 
     with ui_subcard(title="Derived Parameters", sub_ui_name="subvariables_params"):
         with vuetify.VContainer(fluid=True):
             with vuetify.VRow():
@@ -303,60 +299,6 @@ def variables_subcard():
             with vuetify.VRow():
                 with vuetify.VCol(cols="12"):
                     vuetify.VCardSubtitle("Generate Python wrapper for SU2 execution")
-                      # DYNAMIC WALL TEMPERATURE SECTION
-                    with vuetify.VRow(classes="mt-2"):
-                        with vuetify.VCol(cols="12"):
-                            vuetify.VCardTitle("Dynamic Wall Temperature for Airfoil", classes="text-h6")
-                            vuetify.VCardText(
-                                "Configure time-varying wall temperature conditions for the 'airfoil' marker"
-                            )
-                            vuetify.VSwitch(
-                                v_model=("dynamic_temp_enabled", False),
-                                label="Enable Dynamic Wall Temperature",
-                                color="primary"
-                            )
-                            
-                            with vuetify.VRow(v_if=("dynamic_temp_enabled",), classes="mt-2"):
-                                with vuetify.VCol(cols="12"):
-                                    vuetify.VTextField(
-                                        v_model=("dynamic_temp_function", "293.0 + 257.0 * sin(pi * 0.5 * time)"),
-                                        label="Temperature Function",
-                                        hint="Use 'time' as the variable. Example: 293.0 + 257.0 * sin(pi * 0.5 * time)",                                        outlined=True,
-                                        dense=False,
-                                        rows=3,
-                                        multiline=True,
-                                        classes="py-1"
-                                    )
-                                
-                                with vuetify.VCol(cols="12", classes="pt-0"):
-                                    vuetify.VCard(
-                                        elevation=1,
-                                        classes="pa-2",
-                                        children=[
-                                            vuetify.VCardText(
-                                                "Common functions: sin(), cos(), pi, time",
-                                                classes="text-caption"
-                                            )                                        ]
-                                    )
-                    
-                    # DYNAMIC TEMPERATURE WRAPPER FILENAME SECTION
-                    with vuetify.VRow(classes="mt-4", v_if=("dynamic_temp_enabled",)):
-                        with vuetify.VCol(cols="8"):
-                            vuetify.VTextField(
-                                v_model=("dynamic_temp_wrapper_filename", "run_su2.py"),
-                                label="Dynamic Temperature Wrapper Filename",
-                                hint="e.g., run_su2.normal.py, run_su2_dynamic.py",
-                                outlined=True,
-                                dense=True,
-                            )
-                        with vuetify.VCol(cols="4"):
-                            vuetify.VBtn(
-                                "Generate with Dynamic Temp",
-                                color="secondary",
-                                click="generatePythonWrapperWithDynamicTemp = !generatePythonWrapperWithDynamicTemp",
-                                disabled=("!can_generate_wrapper",),
-                                block=True
-                            )
                     
                     # WRAPPER GENERATION SECTION
                     with vuetify.VRow(classes="mt-4"):
@@ -1105,55 +1047,56 @@ def generate_python_wrapper_ui(**kwargs):
         # Re-enable button
         state.can_generate_wrapper = True
 
-@state.change("generatePythonWrapperWithDynamicTemp")
-def generate_python_wrapper_with_dynamic_temp_ui(**kwargs):
-    """Generate Python wrapper with dynamic temperature from the UI."""
-    # Check button state
-    if not state.can_generate_wrapper:
-        log("warning", "Cannot generate wrapper - button is disabled")
-        return
-    
-    # Disable button during generation
-    state.can_generate_wrapper = False
-    
-    try:
-        # Check if case name is defined and not empty
-        if not hasattr(state, 'case_name') or not state.case_name:
-            log("info", "Case name is not defined or empty, cannot generate Python wrapper")
-            return
-        
-        filename_json_export = getattr(state, 'filename_json_export', 'config.json')
-        filename_cfg_export = getattr(state, 'filename_cfg_export', 'config.cfg')
-        filename_py_export = getattr(state, 'dynamic_temp_wrapper_filename', 'run_su2.py')
-        
-        variables = get_variables_dict()
-        derived_parameters = get_derived_parameters_dict()
-          # Create dynamic wall temperature markers dictionary
-        dynamic_wall_temp_markers = {"airfoil": state.dynamic_temp_function}
-        
-        # Save files with dynamic temperature
-        generated_wrapper_path = save_json_cfg_py_file(
-            filename_json_export,
-            filename_cfg_export,
-            filename_py_export,
-            variables=variables,
-            derived_parameters=derived_parameters,
-            dynamic_wall_temp_markers=dynamic_wall_temp_markers
-        )
-        
-        if generated_wrapper_path:
-            state.last_generated_wrapper_path = generated_wrapper_path
-            state.show_wrapper_path_info = True
-            log("info", f"Dynamic temperature wrapper generated successfully!")
-            log("info", f"Location: {generated_wrapper_path}")
-        else:
-            log("error", "Failed to generate dynamic temperature wrapper")
-            state.show_wrapper_path_info = False
-    except Exception as e:
-        log("error", f"Failed to generate Python wrapper with dynamic temperature: {str(e)}")
-    finally:
-        # Re-enable button
-        state.can_generate_wrapper = True
+# Dynamic temperature wrapper generation moved to boundaries.py
+# @state.change("generatePythonWrapperWithDynamicTemp")
+# def generate_python_wrapper_with_dynamic_temp_ui(**kwargs):
+#     """Generate Python wrapper with dynamic temperature from the UI."""
+#     # Check button state
+#     if not state.can_generate_wrapper:
+#         log("warning", "Cannot generate wrapper - button is disabled")
+#         return
+#     
+#     # Disable button during generation
+#     state.can_generate_wrapper = False
+#     
+#     try:
+#         # Check if case name is defined and not empty
+#         if not hasattr(state, 'case_name') or not state.case_name:
+#             log("info", "Case name is not defined or empty, cannot generate Python wrapper")
+#             return
+#         
+#         filename_json_export = getattr(state, 'filename_json_export', 'config.json')
+#         filename_cfg_export = getattr(state, 'filename_cfg_export', 'config.cfg')
+#         filename_py_export = getattr(state, 'dynamic_temp_wrapper_filename', 'run_su2.py')
+#         
+#         variables = get_variables_dict()
+#         derived_parameters = get_derived_parameters_dict()
+#           # Create dynamic wall temperature markers dictionary
+#         dynamic_wall_temp_markers = {"airfoil": state.dynamic_temp_function}
+#         
+#         # Save files with dynamic temperature
+#         generated_wrapper_path = save_json_cfg_py_file(
+#             filename_json_export,
+#             filename_cfg_export,
+#             filename_py_export,
+#             variables=variables,
+#             derived_parameters=derived_parameters,
+#             dynamic_wall_temp_markers=dynamic_wall_temp_markers
+#         )
+#         
+#         if generated_wrapper_path:
+#             state.last_generated_wrapper_path = generated_wrapper_path
+#             state.show_wrapper_path_info = True
+#             log("info", f"Dynamic temperature wrapper generated successfully!")
+#             log("info", f"Location: {generated_wrapper_path}")
+#         else:
+#             log("error", "Failed to generate dynamic temperature wrapper")
+#             state.show_wrapper_path_info = False
+#     except Exception as e:
+#         log("error", f"Failed to generate Python wrapper with dynamic temperature: {str(e)}")
+#     finally:
+#         # Re-enable button
+#         state.can_generate_wrapper = True
 
 # Add confirmation handlers for delete operations
 @state.change("confirmDeleteVariable")
@@ -1228,4 +1171,4 @@ ctrl.delete_variable = delete_variable_action
 ctrl.edit_derived_parameter = edit_derived_parameter_action
 ctrl.delete_derived_parameter = delete_derived_parameter_action
 ctrl.handle_click = handle_click
-ctrl.generate_python_wrapper_with_dynamic_temp = generate_python_wrapper_with_dynamic_temp_ui
+# ctrl.generate_python_wrapper_with_dynamic_temp = generate_python_wrapper_with_dynamic_temp_ui  # Moved to boundaries.py

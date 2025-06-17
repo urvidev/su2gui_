@@ -376,21 +376,20 @@ def boundaries_dialog_card_wall():
                   v_model=("temperature_frequency", 0.5),
                   label="Frequency",
                   type="number", 
-                  dense=True,
-                  classes="py-0 my-0"
+                  dense=True,                  classes="py-0 my-0"
                 )
-          #   # Add dynamic temperature wrapper button for temperature walls
-          # with vuetify.VRow(classes="py-1 my-1"):
-          #   with vuetify.VCol(cols="8", classes="py-1 my-1"):              vuetify.VBtn(
-          #       "Generate Dynamic Temp Wrapper",
-          #       click=ctrl.generate_python_wrapper_with_dynamic_temp,
-          #       color="secondary",
-          #       outlined=True,
-          #       small=True,
-          #       block=True
-          #     )
           
-          # Test button to verify clicks work
+          # DYNAMIC TEMPERATURE WRAPPER FILENAME SECTION
+          with vuetify.VRow(classes="mt-4", v_if=("enable_custom_temperature",)):
+            with vuetify.VCol(cols="8"):
+              vuetify.VTextField(
+                v_model=("python_wrapper_filename", "run_su2_dynamic.py"),
+                label="Dynamic Temperature Wrapper Filename",
+                hint="e.g., run_su2_dynamic.py, run_su2_airfoil.py",
+                outlined=True,                dense=True,
+              )
+          
+          # Test button to verify clicks work (keeping original functionality)
           with vuetify.VRow(classes="py-1 my-1"):
             with vuetify.VCol(cols="8", classes="py-1 my-1"):
               vuetify.VBtn(

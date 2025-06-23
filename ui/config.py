@@ -100,9 +100,9 @@ def update_config_desc(config_desc, **kwargs):
         new_config_desc += line + "\n"
     state.config_desc = new_config_desc
 
-#################### JSON SCHEMA VALIDATION ####################
-# Validate the dictionary against the JSON schema
-# this will be used later when the JSON schema is ready
+# ################### JSON SCHEMA VALIDATION ####################
+# # Validate the dictionary against the JSON schema
+# # this will be used later when the JSON schema is ready
 # def validate_dict_against_schema():
 #     log("info", state.jsonData)
 #     # Load the JSON schema from the file
@@ -135,12 +135,11 @@ def config_tab():
     with vuetify.VTabItem(
         value=(2,), style="width: 100%; height: 100%; padding: 3rem"
     ):
-        
         markdown.Markdown(
             content = ('config_tab_heading', "Add Properties Manually  \n"), 
             style = "font-weight:bolder;background-color: white; color:black; font-size: larger; "
         )
-
+        
         with vuetify.VRow(
             style= "margin:1rem;"
         ):
@@ -162,8 +161,18 @@ def config_tab():
                     dense=True,
                     hide_details=True,
                 )
-        vuetify.VBtn("Add",click=(add_new_property),
-                        style = "background-color: #3a76de; margin-left: 2rem; color: white; margin-bottom: 1rem;"
+        
+        with vuetify.VRow(style="align-items: center; margin-bottom: 1rem;"):
+            vuetify.VBtn("Add",click=(add_new_property),
+                            style = "background-color: #3a76de; margin-right: 1rem; color: white;"
+                            )
+            vuetify.VBtn("Validate Config",
+                        click=ctrl.validate_current_config,
+                        style = "background-color: #28a745; margin-right: 1rem; color: white;"
+                        )
+            vuetify.VBtn("Schema Manager",
+                        click=ctrl.open_schema_manager,
+                        style = "background-color: #17a2b8; margin-right: 1rem; color: white;"
                         )
 
         markdown.Markdown(
@@ -192,3 +201,34 @@ def config_tab():
             content = ('config_str', state.confing_str), 
             style = "background-color: white;"
         )
+
+@ctrl.trigger("validate_current_config")
+def validate_current_config():
+    """Validate current configuration against JSON schema"""
+    try:
+        # Import validator locally to avoid circular imports
+        from test_validation import validate_config_standalone
+        
+        # Use the standalone validator
+        case_config_path = str(Path(__file__).parent.parent / "user" / state.case_name / "config_new.json")
+        schema_path = str(Path(__file__).parent.parent / "user" / "start" / "JsonSchema.json")
+        
+        # Perform validation
+        is_valid = validate_config_standalone(schema_path, case_config_path)
+        
+        if is_valid:
+            log("info", "✅ Configuration validation successful")
+        else:
+            log("error", "❌ Configuration validation failed - check log for details")
+        
+        return is_valid
+        
+    except Exception as e:
+        log("error", f"Configuration validation error: {e}")
+        return False
+
+@ctrl.trigger("open_schema_manager")
+def open_schema_manager():
+    """Open schema management dialog"""
+    from ui.schema_manager import open_schema_dialog
+    open_schema_dialog()

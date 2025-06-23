@@ -167,29 +167,23 @@ def generate_dynamic_temperature_wrapper(
         base_temperature: float = 300.0,
         filename_py_export: str | Path = "run_su2_dynamic.py",
         *,
-        amplitude: float = 257.0,
-        frequency: float = 0.5,
         output_dir: str | Path | None = None,
         variables: Dict[str, Any] | None = None,
-        temperature_formula: str | None = None
+        temperature_formula: str | None = None,
+        wrapper_type: str = "unsteady_cht"  # "unsteady_cht" or "simple"
 ) -> Path:
     
     log("info", f"Generating dynamic temperature wrapper for marker: {boundary_marker}")
-    
-    # Initialize defaults
+      # Initialize defaults
     variables = variables or {}
     if temperature_formula is None:
-        temperature_formula = "BASE_TEMPERATURE + AMPLITUDE * math.sin(math.pi * FREQUENCY * time)"
+        if wrapper_type == "simple":
+            temperature_formula = "560.0 - 260.0*sin(x*pi / 4)"  # Position-based formula
+        else:
+            temperature_formula = "293.0 + 57.0*sin(2*pi*time)"  # Time-based formula
     
-    # Set default variables if not provided by user
-    default_variables = {
-        "BASE_TEMPERATURE": base_temperature,
-        "AMPLITUDE": amplitude,
-        "FREQUENCY": frequency
-    }
-    
-    # Merge user variables with defaults (user variables take precedence)
-    all_variables = {**default_variables, **variables}
+    # Use only user-provided variables
+    all_variables = variables.copy()
     
     filename_py_export = Path(filename_py_export).with_suffix(".py")
     
@@ -200,209 +194,221 @@ def generate_dynamic_temperature_wrapper(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     target_file = output_dir / filename_py_export
-    log("info", f"Output file: {target_file}")
-
-    # ---------- write file -------------------------------------------------
+    log("info", f"Output file: {target_file}")    # ---------- write file -------------------------------------------------
     with target_file.open("w", encoding="utf-8") as f:
-        # imports
+        # Write the exact header from your template
         f.write("#!/usr/bin/env python\n\n")
-        f.write("import pysu2\n")
-        f.write("import numpy as np\n")
-        f.write("from mpi4py import MPI\n")
-        f.write("import math, os, sys\n\n")
         
-        # dynamic temperature parameters
-        f.write("# ----------------------\n# Dynamic Temperature Parameters\n")
-        
-        # Write all user-defined and default variables
-        for var_name, var_value in all_variables.items():
-            if isinstance(var_value, str):
-                # Try to convert string to number 
-                try:
-                    if '.' in var_value or 'e' in var_value.lower():
-                        # Try as float
-                        numeric_value = float(var_value)
-                        f.write(f"{var_name} = {numeric_value}  # {var_name}\n")
-                    elif var_value.isdigit() or (var_value.startswith('-') and var_value[1:].isdigit()):
-                        # Try as integer
-                        numeric_value = int(var_value)
-                        f.write(f"{var_name} = {numeric_value}  # {var_name}\n")
+        if wrapper_type == "simple":
+            # Generate simplified wrapper template
+            f.write("# ----------------------------------------------------------------------\n")
+            f.write("#  Imports\n")
+            f.write("# ----------------------------------------------------------------------\n\n")
+            f.write("import pysu2\n")
+            f.write("from math import sin,pi \n")
+            f.write("from mpi4py import MPI\n\n")
+            
+            # Write user-defined variables if any
+            if all_variables:
+                f.write("# ----------------------------------------------------------------------\n")
+                f.write("#  User-Defined Variables\n")
+                f.write("# ----------------------------------------------------------------------\n\n")
+                
+                for var_name, var_value in all_variables.items():
+                    if isinstance(var_value, str):
+                        try:
+                            if '.' in var_value or 'e' in var_value.lower():
+                                numeric_value = float(var_value)
+                                f.write(f"{var_name} = {numeric_value}\n")
+                            elif var_value.isdigit() or (var_value.startswith('-') and var_value[1:].isdigit()):
+                                numeric_value = int(var_value)
+                                f.write(f"{var_name} = {numeric_value}\n")
+                            else:
+                                f.write(f"{var_name} = {var_value}\n")
+                        except ValueError:
+                            f.write(f"{var_name} = '{var_value}'\n")
+                    elif isinstance(var_value, (int, float)):
+                        f.write(f"{var_name} = {var_value}\n")
                     else:
-                        # Keep as string
-                        f.write(f"{var_name} = '{var_value}'  # {var_name}\n")
-                except ValueError:
-                    # Not a valid number, keep as string
-                    f.write(f"{var_name} = '{var_value}'  # {var_name}\n")
-            elif isinstance(var_value, (int, float)):
-                f.write(f"{var_name} = {var_value}  # {var_name}\n")
-            else:
-                f.write(f"{var_name} = {var_value}  # {var_name}\n")
-        
-        f.write(f"WALL_MARKER = '{boundary_marker}'  # Wall boundary marker name\n")
-        f.write(f"temperature_formula = '{temperature_formula}'  # Temperature formula\n\n")
-
-        # configuration file reference
-        f.write("# ----------------------\n# SU2 configuration file path\n")
-        f.write("config_file = 'config.cfg'\n\n")
-        
-        # Define available mathematical functions and constants
-        f.write("# ----------------------\n# Available math functions and constants\n")
-        f.write("def get_math_functions():\n")
-        f.write("    \"\"\"Return a dictionary of available math functions and constants.\"\"\"\n")
-        f.write("    math_functions = {\n")
-        f.write("        # Constants\n")
-        f.write("        'pi': math.pi,\n")
-        f.write("        'e': math.e,\n")
-        f.write("        'inf': math.inf,\n")
-        f.write("        'nan': math.nan,\n")
-        f.write("        # Functions\n")
-        f.write("        'sin': math.sin,\n")
-        f.write("        'cos': math.cos,\n")
-        f.write("        'tan': math.tan,\n")
-        f.write("        'asin': math.asin,\n")
-        f.write("        'acos': math.acos,\n")
-        f.write("        'atan': math.atan,\n")
-        f.write("        'atan2': math.atan2,\n")
-        f.write("        'sinh': math.sinh,\n")
-        f.write("        'cosh': math.cosh,\n")
-        f.write("        'tanh': math.tanh,\n")
-        f.write("        'exp': math.exp,\n")
-        f.write("        'log': math.log,\n")
-        f.write("        'log10': math.log10,\n")
-        f.write("        'sqrt': math.sqrt,\n")
-        f.write("        'pow': math.pow,\n")
-        f.write("        'abs': abs,\n")
-        f.write("        'ceil': math.ceil,\n")
-        f.write("        'floor': math.floor,\n")
-        f.write("        'round': round,\n")
-        f.write("        'min': min,\n")
-        f.write("        'max': max,\n")
-        f.write("        'degrees': math.degrees,\n")
-        f.write("        'radians': math.radians,\n")
-        f.write("    }\n")
-        f.write("    return math_functions\n\n")
-        
-        # Parse and validate formula
-        f.write("def parse_formula(formula, time_value):\n")
-        f.write("    \"\"\"Parse and evaluate the temperature formula safely.\"\"\"\n")
-        f.write("    # Get all available math functions\n")
-        f.write("    math_funcs = get_math_functions()\n")
-        f.write("    \n")
-        f.write("    # Create a local context with variables and time\n")
-        f.write("    context = {**globals(), **math_funcs, 'time': time_value}\n")
-        f.write("    \n")
-        f.write("    # Remove any potentially dangerous functions\n")
-        f.write("    for unsafe_func in ['eval', 'exec', '__import__', 'open', 'globals', 'locals']:\n")
-        f.write("        if unsafe_func in context:\n")
-        f.write("            del context[unsafe_func]\n")
-        f.write("    \n")
-        f.write("    try:\n")
-        f.write("        # Using eval with restricted globals/locals is safer than string manipulation\n")
-        f.write("        result = eval(formula, {}, context)\n")
-        f.write("        return float(result)  # Ensure result is a float\n")
-        f.write("    except Exception as e:\n")
-        f.write("        print(f\"Error evaluating formula '{formula}': {e}\")\n")
-        f.write("        # Return base temperature as fallback\n")
-        f.write("        return BASE_TEMPERATURE\n\n")
-        
-        # dynamic temperature function using the parser
-        f.write("def calculate_wall_temperature(time):\n")
-        f.write("    \"\"\"Calculate dynamic wall temperature based on time using user-defined formula.\"\"\"\n")
-        f.write("    return parse_formula(temperature_formula, time)\n\n")
-        
-        # main function with dynamic temperature control
-        f.write(
-            "def main():\n"
-            "    comm = MPI.COMM_WORLD\n"
-            "    rank = comm.Get_rank()\n"
-            "    \n"
-            "    # Check if config file exists\n"
-            "    if not os.path.exists(config_file):\n"
-            "        if rank == 0:\n"
-            "            print(f'Error: Configuration file {config_file} not found')\n"
-            "        return 1\n"
-            "    \n"
-            "    try:\n"
-            "        # Initialize SU2 driver\n"
-            "        driver = pysu2.CSinglezoneDriver(config_file, 1, comm)\n"
-            "        \n"
-            "        # Get number of time iterations from config or set default\n"
-            "        nTimeIter = 100  # Adjust based on your simulation needs\n"
-            "        \n"
-            "        if rank == 0:\n"
-            "            print(f'Starting dynamic temperature simulation with {nTimeIter} iterations')\n"
-            "            print(f'Wall marker: {WALL_MARKER}')\n"
-        )
-        
-        # Add dynamic printing of all variables
-        for var_name in all_variables.keys():
-            f.write(f"            print(f'{var_name}: {{{var_name}}}')\n")
-        
-        f.write(
-            "            print(f'Temperature formula: {temperature_formula}')\n"
-            "            # Test formula with sample time values\n"
-            "            print('Formula test results:')\n"
-            "            for test_time in [0, 1, 5, 10]:\n"
-            "                temp = calculate_wall_temperature(test_time)\n"
-            "                print(f'  t={test_time}: {temp:.2f}K')\n"
-            "        \n"
-            "        # Time iteration loop with dynamic temperature\n"
-            "        for TimeIter in range(nTimeIter):\n"
-            "            \n"
-            "            # Preprocess for current time step\n"
-            "            driver.Preprocess(TimeIter)\n"
-            "            \n"
-            "            # Calculate current wall temperature\n"
-            "            current_time = float(TimeIter)  # You may need to get actual time from driver\n"
-            "            wall_temp = calculate_wall_temperature(current_time)\n"
-            "            \n"
-            "            # Set dynamic wall temperature for all vertices on the wall marker\n"
-            "            # Note: This requires SU2 to be compiled with Python custom BC support\n"
-            "            try:\n"
-            "                # Get marker ID for the wall boundary\n"
-            "                marker_id = driver.GetMarkerIndex(WALL_MARKER)\n"
-            "                if marker_id >= 0:\n"
-            "                    # Get number of vertices on this marker\n"
-            "                    n_vertices = driver.GetNumberVertices(marker_id)\n"
-            "                    \n"
-            "                    # Set temperature for each vertex\n"
-            "                    for vertex_id in range(n_vertices):\n"
-            "                        driver.SetMarkerCustomTemperature(marker_id, vertex_id, wall_temp)\n"
-            "                    \n"
-            "                    # Update boundary conditions\n"
-            "                    driver.BoundaryConditionsUpdate()\n"
-            "                    \n"
-            "                    if rank == 0 and TimeIter % 10 == 0:\n"
-            "                        print(f'  Time step {TimeIter}: Wall temperature = {wall_temp:.2f}K')\n"
-            "                else:\n"
-            "                    if rank == 0:\n"
-            "                        print(f'Warning: Wall marker \"{WALL_MARKER}\" not found')\n"
-            "            except Exception as e:\n"
-            "                if rank == 0:\n"
-            "                    print(f'Warning: Could not set custom temperature: {e}')\n"
-            "                    print('Continuing with static temperature...')\n"
-            "            \n"
-            "            # Run iteration\n"
-            "            driver.Run()\n"
-            "            \n"
-            "            # Postprocess\n"
-            "            driver.Postprocess()\n"
-            "            \n"
-            "            # Update for next iteration\n"
-            "            driver.Update()\n"
-            "        \n"
-            "        if rank == 0:\n"
-            "            print('Dynamic temperature simulation completed successfully')\n"
-            "            \n"
-            "    except Exception as exc:\n"
-            "        if rank == 0:\n"
-            "            print(f'Error running SU2 with dynamic temperature: {exc}')\n"
-            "        return 1\n"
-            "    \n"
-            "    return 0\n\n\n"
-            "if __name__ == '__main__':\n"
-            "    raise SystemExit(main())\n"
-        )
+                        f.write(f"{var_name} = {var_value}\n")
+                f.write("\n")
+            
+            # Simple wrapper main function
+            f.write("def main():\n")
+            f.write("  comm = MPI.COMM_WORLD\n\n")
+            f.write("  # Initialize the corresponding driver of SU2, this includes solver preprocessing.\n")
+            f.write("  try:\n")
+            f.write("    SU2Driver = pysu2.CSinglezoneDriver('config.cfg', 1, comm)\n")
+            f.write("  except TypeError as exception:\n")
+            f.write("    print('A TypeError occured in pysu2.CDriver : ', exception)\n")
+            f.write("    raise\n\n")
+            f.write("  # Get the ID of the marker we want to deform.\n")
+            f.write("  AllMarkerIDs = SU2Driver.GetMarkerIndices()\n")
+            f.write(f"  MarkerName = '{boundary_marker}'\n")
+            f.write("  MarkerID = AllMarkerIDs[MarkerName] if MarkerName in AllMarkerIDs else -1\n\n")
+            f.write("  # Number of vertices on the specified marker (per rank).\n")
+            f.write("  nVertex = SU2Driver.GetNumberMarkerNodes(MarkerID) if MarkerID >= 0 else 0\n\n")
+            f.write("  # Apply a load based on the coordinates.\n")
+            f.write("  if nVertex > 0:\n")
+            f.write("    for i_vertex in range(SU2Driver.GetNumberMarkerNodes(MarkerID)):\n")
+            f.write("      marker_coords = SU2Driver.MarkerCoordinates(MarkerID)\n")
+            f.write("      x = marker_coords(i_vertex, 0)\n")
+            f.write(f"      WallTemp = {temperature_formula}\n")
+            f.write("      SU2Driver.SetMarkerCustomTemperature(MarkerID, i_vertex, WallTemp)\n\n")
+            f.write("  \n")
+            f.write("  SU2Driver.StartSolver()\n")
+            f.write("  SU2Driver.Finalize()\n\n")
+            f.write("\nif __name__ == '__main__':\n")
+            f.write("  main()\n")
+            
+        else:
+            # Generate full unsteady CHT template
+            f.write("## \\file launch_unsteady_CHT_FlatPlate.py\n")
+            f.write("#  \\brief Python script to launch SU2_CFD with customized unsteady boundary conditions using the Python wrapper.\n")
+            f.write("#  \\author David Thomas\n")
+            f.write("#  \\version 8.0.1 \"Harrier\"\n")
+            f.write("#\n")
+            f.write("# SU2 Project Website: https://su2code.github.io\n")
+            f.write("#\n")
+            f.write("# The SU2 Project is maintained by the SU2 Foundation\n")
+            f.write("# (http://su2foundation.org)\n")
+            f.write("#\n")
+            f.write("# Copyright 2012-2024, SU2 Contributors (cf. AUTHORS.md)\n")
+            f.write("#\n")
+            f.write("# SU2 is free software; you can redistribute it and/or\n")
+            f.write("# modify it under the terms of the GNU Lesser General Public\n")
+            f.write("# License as published by the Free Software Foundation; either\n")
+            f.write("# version 2.1 of the License, or (at your option) any later version.\n")
+            f.write("#\n")
+            f.write("# SU2 is distributed in the hope that it will be useful,\n")
+            f.write("# but WITHOUT ANY WARRANTY; without even the implied warranty of\n")
+            f.write("# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU\n")
+            f.write("# Lesser General Public License for more details.\n")
+            f.write("#\n")
+            f.write("# You should have received a copy of the GNU Lesser General Public\n")
+            f.write("# License along with SU2. If not, see <http://www.gnu.org/licenses/>.\n\n")
+            
+            # Header comment and imports following the template
+            f.write("# ----------------------------------------------------------------------\n")
+            f.write("#  Imports\n")
+            f.write("# ----------------------------------------------------------------------\n\n")
+            f.write("import sys\n")
+            f.write("from optparse import OptionParser\t# use a parser for configuration\n")
+            f.write("import pysu2\t\t\t# imports the SU2 wrapped module\n")
+            f.write("from math import *\n\n")
+            
+            # Write user-defined variables if any
+            if all_variables:
+                f.write("# ----------------------------------------------------------------------\n")
+                f.write("#  User-Defined Variables\n")
+                f.write("# ----------------------------------------------------------------------\n\n")
+                
+                for var_name, var_value in all_variables.items():
+                    if isinstance(var_value, str):
+                        try:
+                            if '.' in var_value or 'e' in var_value.lower():
+                                numeric_value = float(var_value)
+                                f.write(f"{var_name} = {numeric_value}\n")
+                            elif var_value.isdigit() or (var_value.startswith('-') and var_value[1:].isdigit()):
+                                numeric_value = int(var_value)
+                                f.write(f"{var_name} = {numeric_value}\n")
+                            else:
+                                f.write(f"{var_name} = {var_value}\n")
+                        except ValueError:
+                            f.write(f"{var_name} = '{var_value}'\n")
+                    elif isinstance(var_value, (int, float)):
+                        f.write(f"{var_name} = {var_value}\n")
+                    else:
+                        f.write(f"{var_name} = {var_value}\n")
+                f.write("\n")
+            
+            # Main function following the exact template structure
+            f.write("# -------------------------------------------------------------------\n")
+            f.write("#  Main\n")
+            f.write("# -------------------------------------------------------------------\n\n")
+            f.write("def main():\n\n")
+            f.write("  # Command line options\n")
+            f.write("  parser=OptionParser()\n")
+            f.write("  parser.add_option(\"-f\", \"--file\", dest=\"filename\", help=\"Read config from FILE\", metavar=\"FILE\")\n")
+            f.write("  parser.add_option(\"--parallel\", action=\"store_true\",\n")
+            f.write("                    help=\"Specify if we need to initialize MPI\", dest=\"with_MPI\", default=False)\n\n")
+            f.write("  (options, args) = parser.parse_args()\n")
+            f.write("  options.nDim = int(2)\n")
+            f.write("  options.nZone = int(1)\n\n")
+            f.write("  # Import mpi4py for parallel run\n")
+            f.write("  if options.with_MPI == True:\n")
+            f.write("    from mpi4py import MPI\n")
+            f.write("    comm = MPI.COMM_WORLD\n")
+            f.write("    rank = comm.Get_rank()\n")
+            f.write("  else:\n")
+            f.write("    comm = 0\n")
+            f.write("    rank = 0\n\n")
+            f.write("  # Initialize the corresponding driver of SU2, this includes solver preprocessing\n")
+            f.write("  try:\n")
+            f.write("      SU2Driver = pysu2.CSinglezoneDriver(options.filename, options.nZone, comm);\n")
+            f.write("  except TypeError as exception:\n")
+            f.write("    print('A TypeError occured in pysu2.CDriver : ',exception)\n")
+            f.write("    if options.with_MPI == True:\n")
+            f.write("      print('ERROR : You are trying to initialize MPI with a serial build of the wrapper. Please, remove the --parallel option that is incompatible with a serial build.')\n")
+            f.write("    else:\n")
+            f.write("      print('ERROR : You are trying to launch a computation without initializing MPI but the wrapper has been built in parallel. Please add the --parallel option in order to initialize MPI for the wrapper.')\n")
+            f.write("    return\n\n")
+            f.write("\n")
+            f.write("  CHTMarkerID = None\n")
+            f.write(f"  CHTMarker = '{boundary_marker}'       # Specified by the user\n\n")
+            f.write("  # Get all the tags with the CHT option\n")
+            f.write("  CHTMarkerList =  SU2Driver.GetCHTMarkerTags()\n\n")
+            f.write("  # Get all the markers defined on this rank and their associated indices.\n")
+            f.write("  allMarkerIDs = SU2Driver.GetMarkerIndices()\n\n")
+            f.write("  #Check if the specified marker has a CHT option and if it exists on this rank.\n")
+            f.write("  if CHTMarker in CHTMarkerList and CHTMarker in allMarkerIDs.keys():\n")
+            f.write("    CHTMarkerID = allMarkerIDs[CHTMarker]\n\n")
+            f.write("  # Number of vertices on the specified marker (per rank)\n")
+            f.write("  nVertex_CHTMarker = 0         # total number of vertices (physical + halo)\n\n")
+            f.write("  if CHTMarkerID != None:\n")
+            f.write("    nVertex_CHTMarker = SU2Driver.GetNumberMarkerNodes(CHTMarkerID)\n\n")
+            f.write("  # Retrieve some control parameters from the driver\n")
+            f.write("  deltaT = SU2Driver.GetUnsteadyTimeStep()\n")
+            f.write("  TimeIter = SU2Driver.GetTimeIter()\n")
+            f.write("  nTimeIter = SU2Driver.GetNumberTimeIter()\n")
+            f.write("  time = TimeIter*deltaT\n\n")
+            f.write("  # Time loop is defined in Python so that we have access to SU2 functionalities at each time step\n")
+            f.write("  if rank == 0:\n")
+            f.write("    print(\"\\n------------------------------ Begin Solver -----------------------------\\n\")\n")
+            f.write("  sys.stdout.flush()\n")
+            f.write("  if options.with_MPI == True:\n")
+            f.write("    comm.Barrier()\n\n")
+            f.write("  while (TimeIter < nTimeIter):\n")
+            f.write("    # Time iteration preprocessing\n")
+            f.write("    SU2Driver.Preprocess(TimeIter)\n")
+            f.write("    # Define the homogeneous unsteady wall temperature on the structure (user defined)\n")
+            f.write(f"    WallTemp = {temperature_formula}\n")
+            f.write("    # Set this temperature to all the vertices on the specified CHT marker\n")
+            f.write("    for iVertex in range(nVertex_CHTMarker):\n")
+            f.write("      SU2Driver.SetMarkerCustomTemperature(CHTMarkerID, iVertex, WallTemp)\n\n")
+            f.write("    # Tell the SU2 drive to update the boundary conditions\n")
+            f.write("    SU2Driver.BoundaryConditionsUpdate()\n")
+            f.write("    # Run one time iteration (e.g. dual-time)\n")
+            f.write("    SU2Driver.Run()\n")
+            f.write("    # Postprocess the solver and exit cleanly\n")
+            f.write("    SU2Driver.Postprocess()\n")
+            f.write("    # Update the solver for the next time iteration\n")
+            f.write("    SU2Driver.Update()\n")
+            f.write("    # Monitor the solver and output solution to file if required\n")
+            f.write("    stopCalc = SU2Driver.Monitor(TimeIter)\n")
+            f.write("    SU2Driver.Output(TimeIter)\n")
+            f.write("    if (stopCalc == True):\n")
+            f.write("      break\n")
+            f.write("    # Update control parameters\n")
+            f.write("    TimeIter += 1\n")
+            f.write("    time += deltaT\n\n")
+            f.write("\n")
+            f.write("# -------------------------------------------------------------------\n")
+            f.write("#  Run Main Program\n")
+            f.write("# -------------------------------------------------------------------\n\n")
+            f.write("# this is only accessed if running from command prompt\n")
+            f.write("if __name__ == '__main__':\n")
+            f.write("    main()\n")
 
     # make executable 
     try:

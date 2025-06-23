@@ -8,6 +8,8 @@
 
 import sys
 import os
+import json
+import traceback
 from pathlib import Path
 
 # Add parent directory to path to allow importing from sibling directories
@@ -16,6 +18,7 @@ if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
 # definition of ui_card
+from core.su2_py_wrapper import generate_dynamic_temperature_wrapper
 from ui.uicard import ui_card, ui_subcard, ui_card_children_only, ui_card_parent_only, server
 from trame.widgets import vuetify
 from core.su2_json import *
@@ -39,9 +42,24 @@ state.show_boundaries_dialog_card_supersonic_inlet = False
 
 # Initialize custom temperature state variables
 state.enable_custom_temperature = True
-state.custom_temperature_function = "BASE_TEMPERATURE + AMPLITUDE * sin(pi * FREQUENCY * time)"
-state.temperature_amplitude = 257.0
-state.temperature_frequency = 0.5
+state.custom_temperature_function = "a + b*sin(c*pi*time)"
+state.wrapper_type = "unsteady_cht"  # "unsteady_cht" or "simple"
+
+# Initialize user variables (a, b, c, d, e, f, g, h)
+state.var_a = 293.0  # Base temperature
+state.var_b = 57.0   # Amplitude
+state.var_c = 2.0    # Frequency multiplier
+state.var_d = 0.0    # Additional variable
+state.var_e = 0.0    # Additional variable
+state.var_f = 0.0    # Additional variable
+state.var_g = 0.0    # Additional variable
+state.var_h = 0.0    # Additional variable
+
+# Initialize wrapper type options
+state.LWrapperTypes = [
+    {"text": "Full Unsteady CHT (time-based)", "value": "unsteady_cht"},
+    {"text": "Simple Position-based", "value": "simple"}
+]
 
 # Initialize required state variables if not present
 # if not hasattr(state, 'case_name') or not state.case_name:
@@ -307,16 +325,16 @@ def update_boundaries_dialog_card_outlet():
 ######################################################################
 # popup window for boundaries model - wall
 def boundaries_dialog_card_wall():
-    with vuetify.VDialog(width=300,position='{X:10,Y:10}',transition="dialog-top-transition",v_model=("show_boundaries_dialog_card_wall",False)):
-      with vuetify.VCard():
-
+    with vuetify.VDialog(width=500,position='{X:10,Y:10}',transition="dialog-top-transition",v_model=("show_boundaries_dialog_card_wall",False)):
+      with vuetify.VCard(width=500, style_="min-width: 500px"):
         vuetify.VCardTitle("Wall",
-                           classes="grey lighten-1 py-1 grey--text text--darken-3")
+                          classes="grey lighten-1 py-1 grey--text text--darken-3",
+                          style_="width: 100%")
 
-        with vuetify.VContainer(fluid=True):
+        with vuetify.VContainer(fluid=True, style_="width: 100%; max-width: 500px"):
           # ####################################################### #
-          with vuetify.VRow(classes="py-0 my-0"):
-            with vuetify.VCol(cols="8", classes="py-1 my-1 pr-0 mr-0"):
+          with vuetify.VRow(classes="py-0 my-0", style_="width: 100%"):
+            with vuetify.VCol(cols="12", classes="py-1 my-1"):
               # Then a list selection for wall submodels
               vuetify.VSelect(
                 # What to do when something is selected
@@ -329,69 +347,138 @@ def boundaries_dialog_card_wall():
                 dense=True,
                 outlined=True,
                 classes="py-0 my-0",
-            )        # temperature
-        with vuetify.VContainer(fluid=True,v_if=("boundaries_wall_idx==0"),):
+            )
+        
+        # temperature
+        with vuetify.VContainer(fluid=True, v_if=("boundaries_wall_idx==0"), style_="width: 100%; max-width: 500px"):
           # ####################################################### #
-          with vuetify.VRow(classes="py-0 my-0"):
-            with vuetify.VCol(cols="8", classes="py-1 my-1 pr-0 mr-0"):
+          with vuetify.VRow(classes="py-0 my-0", style_="width: 100%"):
+            with vuetify.VCol(cols="12", classes="py-1 my-1"):
               vuetify.VTextField(
                 # What to do when something is selected
                 v_model=("boundaries_inc_temperature_idx", 300.0),
                 # the name of the list box
-                label="Base Temperature [K]",
-                #    label= ("selectedBoundaryIndex","none"),
+                label="Base Temperature [K]",                #    label= ("selectedBoundaryIndex","none"),
               )
-          
+            
           # Custom Temperature Section
-          with vuetify.VRow(classes="py-1 my-1"):
-            with vuetify.VCol(cols="8", classes="py-1 my-1"):              vuetify.VCheckbox(
+          with vuetify.VRow(classes="py-1 my-1", style_="width: 100%"):
+            with vuetify.VCol(cols="12", classes="py-1 my-1"):
+              vuetify.VCheckbox(
                 v_model=("enable_custom_temperature", True),
                 label="Enable Custom Temperature Function",
                 dense=True,
                 classes="py-0 my-0"
               )
+            # Wrapper Type Selection (only shown when custom temperature is enabled)
+          with vuetify.VContainer(fluid=True, v_if=("enable_custom_temperature",), style_="width: 100%; max-width: 500px"):
+            with vuetify.VRow(classes="py-0 my-0", style_="width: 100%"):
+              with vuetify.VCol(cols="12", classes="py-1 my-1"):
+                vuetify.VSelect(
+                  v_model=("wrapper_type", "unsteady_cht"),
+                  items=("LWrapperTypes", []),
+                  label="Python Wrapper Type",
+                  hint="Select the type of SU2 Python wrapper to generate",
+                  persistent_hint=True,
+                  dense=True,
+                  outlined=True,
+                  classes="py-0 my-0"
+                )
             # Custom temperature function input (only shown when checkbox is enabled)
-          with vuetify.VContainer(fluid=True, v_if=("enable_custom_temperature",)):
-            with vuetify.VRow(classes="py-0 my-0"):
-              with vuetify.VCol(cols="8", classes="py-1 my-1 pr-0 mr-0"):
+          with vuetify.VContainer(fluid=True, v_if=("enable_custom_temperature",), style_="width: 100%; max-width: 500px"):
+            with vuetify.VRow(classes="py-0 my-0", style_="width: 100%"):
+              with vuetify.VCol(cols="12", classes="py-1 my-1"):
                 vuetify.VTextField(
-                  v_model=("custom_temperature_function", "BASE_TEMPERATURE + AMPLITUDE * sin(pi * FREQUENCY * time)"),
+                  v_model=("custom_temperature_function", "a + b*sin(c*pi*time)"),
                   label="Temperature Function",
-                  hint="Use variables like BASE_TEMPERATURE, AMPLITUDE, FREQUENCY, time",
+                  hint="Use variables like a, b, c, d, etc. and 'time'",
                   persistent_hint=True,
                   classes="py-0 my-0"
                 )
+                
+            # User-defined variables section
+            with vuetify.VRow(classes="py-1 my-1", style_="width: 100%"):
+              with vuetify.VCol(cols="12", classes="py-0 my-0"):
+                vuetify.VSubheader("User Variables (a, b, c, d...)")
             
-            with vuetify.VRow(classes="py-0 my-0"):
-              with vuetify.VCol(cols="4", classes="py-1 my-1 pr-1 mr-1"):
+            with vuetify.VRow(classes="py-0 my-0", style_="width: 100%"):
+              with vuetify.VCol(cols="3", classes="py-1 my-1"):
                 vuetify.VTextField(
-                  v_model=("temperature_amplitude", 257.0),
-                  label="Amplitude [K]",
+                  v_model=("var_a", 293.0),
+                  label="a",
                   type="number",
                   dense=True,
                   classes="py-0 my-0"
                 )
-              with vuetify.VCol(cols="4", classes="py-1 my-1 pl-1 ml-1"):
+              with vuetify.VCol(cols="3", classes="py-1 my-1"):
                 vuetify.VTextField(
-                  v_model=("temperature_frequency", 0.5),
-                  label="Frequency",
-                  type="number", 
-                  dense=True,                  classes="py-0 my-0"
+                  v_model=("var_b", 57.0),
+                  label="b", 
+                  type="number",
+                  dense=True,
+                  classes="py-0 my-0"
                 )
-          
-          # DYNAMIC TEMPERATURE WRAPPER FILENAME SECTION
-          with vuetify.VRow(classes="mt-4", v_if=("enable_custom_temperature",)):
-            with vuetify.VCol(cols="8"):
+              with vuetify.VCol(cols="3", classes="py-1 my-1"):
+                vuetify.VTextField(
+                  v_model=("var_c", 2.0),
+                  label="c",
+                  type="number",
+                  dense=True,
+                  classes="py-0 my-0"
+                )
+              with vuetify.VCol(cols="3", classes="py-1 my-1"):
+                vuetify.VTextField(
+                  v_model=("var_d", 0.0),
+                  label="d",                  type="number",
+                  dense=True,
+                  classes="py-0 my-0"
+                )
+            
+            with vuetify.VRow(classes="py-0 my-0", style_="width: 100%"):
+              with vuetify.VCol(cols="3", classes="py-1 my-1"):
+                vuetify.VTextField(
+                  v_model=("var_e", 0.0),
+                  label="e",
+                  type="number",
+                  dense=True,
+                  classes="py-0 my-0"
+                )
+              with vuetify.VCol(cols="3", classes="py-1 my-1"):
+                vuetify.VTextField(
+                  v_model=("var_f", 0.0),
+                  label="f",
+                  type="number",
+                  dense=True,
+                  classes="py-0 my-0"
+                )
+              with vuetify.VCol(cols="3", classes="py-1 my-1"):
+                vuetify.VTextField(
+                  v_model=("var_g", 0.0),
+                  label="g",
+                  type="number",
+                  dense=True,
+                  classes="py-0 my-0"
+                )
+              with vuetify.VCol(cols="3", classes="py-1 my-1"):
+                vuetify.VTextField(
+                  v_model=("var_h", 0.0),
+                  label="h",
+                  type="number",
+                  dense=True,
+                  classes="py-0 my-0"
+                )
+            # DYNAMIC TEMPERATURE WRAPPER FILENAME SECTION
+          with vuetify.VRow(classes="mt-4", v_if=("enable_custom_temperature",), style_="width: 100%"):
+            with vuetify.VCol(cols="12"):
               vuetify.VTextField(
                 v_model=("python_wrapper_filename", "run_su2_dynamic.py"),
                 label="Dynamic Temperature Wrapper Filename",
                 hint="e.g., run_su2_dynamic.py, run_su2_airfoil.py",
                 outlined=True,                dense=True,
               )
-          
-          # Test button to verify clicks work (keeping original functionality)
-          with vuetify.VRow(classes="py-1 my-1"):
-            with vuetify.VCol(cols="8", classes="py-1 my-1"):
+            # Test button to verify clicks work (keeping original functionality)
+          with vuetify.VRow(classes="py-1 my-1", style_="width: 100%"):
+            with vuetify.VCol(cols="12", classes="py-1 my-1"):
               vuetify.VBtn(
                 "Generate Dynamic Temp Wrapper",
                 click=ctrl.test_button_click,
@@ -399,33 +486,32 @@ def boundaries_dialog_card_wall():
                 outlined=True,
                 small=True,
                 block=True
-              )
-        # heat flux
-        with vuetify.VContainer(fluid=True,v_if=("boundaries_wall_idx==1"),):
+              )        # heat flux
+        with vuetify.VContainer(fluid=True, v_if=("boundaries_wall_idx==1"), style_="width: 100%; max-width: 500px"):
           # ####################################################### #
-          with vuetify.VRow(classes="py-0 my-0"):
-            with vuetify.VCol(cols="8", classes="py-1 my-1 pr-0 mr-0"):
+          with vuetify.VRow(classes="py-0 my-0", style_="width: 100%"):
+            with vuetify.VCol(cols="12", classes="py-1 my-1"):
               vuetify.VTextField(
                 # What to do when something is selected
                 v_model=("boundaries_inc_heatflux_idx", 0.0),
                 # the name of the list box
                 label="Heat flux [J/m^2]",
                 #    label= ("selectedBoundaryIndex","none"),
-              )
-        # heat transfer
-        with vuetify.VContainer(fluid=True,v_if=("boundaries_wall_idx==2"),):
+              )        # heat transfer
+        with vuetify.VContainer(fluid=True, v_if=("boundaries_wall_idx==2"), style_="width: 100%; max-width: 500px"):
           # ####################################################### #
-          with vuetify.VRow(classes="py-0 my-0"):
-            with vuetify.VCol(cols="8", classes="py-1 my-1 pr-0 mr-0"):
-              vuetify.VTextField(
-                # What to do when something is selected
+          with vuetify.VRow(classes="py-0 my-0", style_="width: 100%"):
+            with vuetify.VCol(cols="12", classes="py-1 my-1"):
+              vuetify.VTextField(                # What to do when something is selected
                 v_model=("boundaries_inc_heattransfer_h_idx", 1000.0),
                 # the name of the list box
                 label="Heat Transfer Coefficient [J/K.m^2]",
                 #    label= ("selectedBoundaryIndex","none"),
               )
-          with vuetify.VRow(classes="py-0 my-0",v_if=("boundaries_wall_idx!=3"),):
-            with vuetify.VCol(cols="8", classes="py-1 my-1 pr-0 mr-0"):
+          
+          # Far-field temperature row for heat transfer
+          with vuetify.VRow(classes="py-0 my-0", style_="width: 100%"):
+            with vuetify.VCol(cols="12", classes="py-1 my-1", v_if=("boundaries_wall_idx!=3")):
               vuetify.VTextField(
                 # What to do when something is selected
                 v_model=("boundaries_inc_heattransfer_T_idx", 300.0),
@@ -433,9 +519,9 @@ def boundaries_dialog_card_wall():
                 label="Far-field temperature [K]",
                 #    label= ("selectedBoundaryIndex","none"),
               )
-
+        
         with vuetify.VCardText():
-          vuetify.VBtn("close", click=update_boundaries_dialog_card_wall)
+          vuetify.VBtn("close", click=update_boundaries_dialog_card_wall, style_="width: 100%")
 
 #3. define an update for the boolean to show/hide the dialog
 # switch the visibility of the popup window on/off
@@ -459,35 +545,26 @@ def generate_python_wrapper_with_dynamic_temp():
             state.selectedBoundaryName = "airfoil"
 
         print(f"Selected boundary: {state.selectedBoundaryName}")
-            
         # Get current temperature value and custom settings
         base_temp = getattr(state, 'boundaries_inc_temperature_idx', 300.0)
         boundary_name = state.selectedBoundaryName
-        amplitude = getattr(state, 'temperature_amplitude', 257.0)
-        frequency = getattr(state, 'temperature_frequency', 0.5)
-        custom_function = getattr(state, 'custom_temperature_function', 
-                                 "BASE_TEMPERATURE + AMPLITUDE * math.sin(math.pi * FREQUENCY * time)")
+        custom_function = getattr(state, 'custom_temperature_function', "a + b*sin(c*pi*time)")
         
         log("info", f"Generating dynamic temperature wrapper for boundary '{boundary_name}'")
-        log("info", f"Base temperature: {base_temp}K, Amplitude: {amplitude}K, Frequency: {frequency}")
+        log("info", f"Base temperature: {base_temp}K")
         log("info", f"Custom function: {custom_function}")
         
-        # Get variables from the Variables UI if available
-        variables = {}
-        if hasattr(state, 'variables') and state.variables:
-            # Convert variables to a simple dict for the wrapper
-            for var_name, var_data in state.variables.items():
-                if isinstance(var_data, dict) and 'value' in var_data:
-                    variables[var_name] = var_data['value']
-                else:
-                    variables[var_name] = var_data
-        
-        # Add the temperature-specific variables
-        variables.update({
-            'BASE_TEMPERATURE': base_temp,
-            'AMPLITUDE': amplitude,
-            'FREQUENCY': frequency
-        })
+        # Get user variables from the boundary card (a, b, c, d, e, f, g, h)
+        variables = {
+            'a': getattr(state, 'var_a', 293.0),
+            'b': getattr(state, 'var_b', 57.0),
+            'c': getattr(state, 'var_c', 2.0),
+            'd': getattr(state, 'var_d', 0.0),
+            'e': getattr(state, 'var_e', 0.0),
+            'f': getattr(state, 'var_f', 0.0),
+            'g': getattr(state, 'var_g', 0.0),
+            'h': getattr(state, 'var_h', 0.0),
+        }
         
         log("info", f"Using variables: {variables}")
         
@@ -504,29 +581,28 @@ def generate_python_wrapper_with_dynamic_temp():
         if boundary_name not in state.jsonData['MARKER_PYTHON_CUSTOM']:
             state.jsonData['MARKER_PYTHON_CUSTOM'].append(boundary_name)
         
-        # Import the wrapper generation function
-        from core.su2_py_wrapper import generate_dynamic_temperature_wrapper
-        
+        # Import the wrapper generation function        from core.su2_py_wrapper import generate_dynamic_temperature_wrapper
         # Generate the wrapper with dynamic temperature and variables
         wrapper_path = generate_dynamic_temperature_wrapper(
             boundary_marker=boundary_name,
             base_temperature=base_temp,
             filename_py_export=getattr(state, 'python_wrapper_filename', 'run_su2_dynamic.py'),
-            amplitude=amplitude,
-            frequency=frequency,
             variables=variables,
-            temperature_formula=custom_function
+            temperature_formula=custom_function,
+            wrapper_type=getattr(state, 'wrapper_type', 'unsteady_cht')
         )
         
         # Also save the updated configuration files - import function that exists
         try:
             from core.su2_io import save_json_cfg_file
-            save_json_cfg_file(
-                filename_json_export=getattr(state, 'filename_json_export', 'config.json'),
+            save_json_cfg_file(                filename_json_export=getattr(state, 'filename_json_export', 'config.json'),
                 filename_cfg_export=getattr(state, 'filename_cfg_export', 'config.cfg')
             )
         except ImportError:
             # If su2_io doesn't exist, save JSON manually
+            log("warning", "Could not import save_json_cfg_file, saving JSON manually")
+        
+        try:
             import json
             from pathlib import Path
             export_dir = Path(__file__).parent.parent / "user" / state.case_name
@@ -535,6 +611,9 @@ def generate_python_wrapper_with_dynamic_temp():
             with json_path.open("w", encoding="utf-8") as fp:
                 json.dump(state.jsonData, fp, indent=4, sort_keys=True, ensure_ascii=False)
             log("info", f"Wrote JSON to {json_path}")
+        except Exception as e:
+            log("warning", f"Could not save configuration files: {str(e)}")
+            log("warning", f"Continuing with wrapper generation...")
         
         log("info", f"Dynamic temperature wrapper generated successfully for {boundary_name}")
         log("info", f"Wrapper file: {wrapper_path}")
@@ -557,40 +636,38 @@ ctrl.generate_python_wrapper_with_dynamic_temp = generate_python_wrapper_with_dy
 ######################################################################
 # popup window for boundaries model - farfield
 def boundaries_dialog_card_farfield():
-    with vuetify.VDialog(width=300,position='{X:10,Y:10}',transition="dialog-top-transition",v_model=("show_boundaries_dialog_card_farfield",False)):
-      with vuetify.VCard():
-
+    with vuetify.VDialog(width=500, position='{X:10,Y:10}', transition="dialog-top-transition", v_model=("show_boundaries_dialog_card_farfield", False)):
+      with vuetify.VCard(width=500, style_="min-width: 500px"):
+        
         vuetify.VCardTitle("Far-field",
-                           classes="grey lighten-1 py-1 grey--text text--darken-3")
-
-        with vuetify.VContainer(fluid=True):
-
-          with vuetify.VRow(classes="py-0 my-0"):
-            with vuetify.VCol(cols="3", classes="py-1 my-1 pr-0 mr-0"):
+                           classes="grey lighten-1 py-1 grey--text text--darken-3",
+                           style_="width: 100%")
+                           
+        with vuetify.VContainer(fluid=True, style_="width: 100%; max-width: 500px"):
+          with vuetify.VRow(classes="py-0 my-0", style_="width: 100%"):
+            with vuetify.VCol(cols="4", classes="py-1 my-1"):
               vuetify.VTextField(
                 # What to do when something is selected
                 v_model=("boundaries_farfield_Vx_idx", 1.0),
                 # the name of the list box
                 label="Far-field X-Velocity [m/s]",
               )
-            with vuetify.VCol(cols="3", classes="py-1 my-1 pr-0 mr-0"):
+            with vuetify.VCol(cols="4", classes="py-1 my-1"):
               vuetify.VTextField(
                 # What to do when something is selected
                 v_model=("boundaries_farfield_Vy_idx", 0.0),
                 # the name of the list box
                 label="Far-field Y-Velocity [m/s]",
               )
-            with vuetify.VCol(cols="3", classes="py-1 my-1 pr-0 mr-0"):
+            with vuetify.VCol(cols="4", classes="py-1 my-1"):
               vuetify.VTextField(
-                # What to do when something is selected
-                v_model=("boundaries_farfield_Vz_idx", 0.0),
+                # What to do when something is selected                v_model=("boundaries_farfield_Vz_idx", 0.0),
                 # the name of the list box
                 label="Far-field Z-Velocity [m/s]",
               )
-
-
-          with vuetify.VRow(classes="py-0 my-0"):
-            with vuetify.VCol(cols="8", classes="py-1 my-1 pr-0 mr-0"):
+              
+          with vuetify.VRow(classes="py-0 my-0", style_="width: 100%"):
+            with vuetify.VCol(cols="12", classes="py-1 my-1"):
               vuetify.VTextField(
                 # What to do when something is selected
                 v_model=("boundaries_farfield_P_idx", 101325.0),
@@ -598,27 +675,24 @@ def boundaries_dialog_card_farfield():
                 label="Far-field pressure [Pa]",
               )
 
-          with vuetify.VRow(classes="py-0 my-0"):
-            with vuetify.VCol(cols="8", classes="py-1 my-1 pr-0 mr-0"):
+          with vuetify.VRow(classes="py-0 my-0", style_="width: 100%"):
+            with vuetify.VCol(cols="12", classes="py-1 my-1"):
               vuetify.VTextField(
                 # What to do when something is selected
-                v_model=("boundaries_farfield_T_idx", 300.0),
-                # the name of the list box
+                v_model=("boundaries_farfield_T_idx", 300.0),                # the name of the list box
                 label="Far-field temperature [K]",
               )
 
-          with vuetify.VRow(classes="py-0 my-0"):
-            with vuetify.VCol(cols="8", classes="py-1 my-1 pr-0 mr-0"):
+          with vuetify.VRow(classes="py-0 my-0", style_="width: 100%"):
+            with vuetify.VCol(cols="12", classes="py-1 my-1"):
               vuetify.VTextField(
                 # What to do when something is selected
                 v_model=("boundaries_farfield_rho_idx", 1.2),
-                # the name of the list box
-                label="Far-field density [kg/m^3]",
+                # the name of the list box                label="Far-field density [kg/m^3]",
               )
-
-
+              
         with vuetify.VCardText():
-          vuetify.VBtn("close", click=update_boundaries_dialog_card_farfield)
+          vuetify.VBtn("close", click=update_boundaries_dialog_card_farfield, style_="width: 100%")
 
 #3. define an update for the boolean to show/hide the dialog
 # switch the visibility of the popup window on/off
@@ -1331,11 +1405,10 @@ def update_custom_temperature_enabled(enable_custom_temperature, **kwargs):
     log("info", f"Custom temperature enabled: {enable_custom_temperature}")
     if hasattr(state, 'selectedBoundaryIndex') and state.selectedBoundaryIndex is not None:
         if enable_custom_temperature:
-            # Mark this boundary as having custom temperature
-            state.BCDictList[state.selectedBoundaryIndex]['custom_temperature'] = True
+            # Mark this boundary as having custom temperature            state.BCDictList[state.selectedBoundaryIndex]['custom_temperature'] = True
             state.BCDictList[state.selectedBoundaryIndex]['temperature_function'] = getattr(
                 state, 'custom_temperature_function', 
-                "BASE_TEMPERATURE + AMPLITUDE * sin(pi * FREQUENCY * time)"
+                "293.0 + 57.0*sin(2*pi*time)"
             )
         else:
             # Remove custom temperature settings
@@ -1376,5 +1449,27 @@ def test_button_click():
 
 # Register the test function
 ctrl.test_button_click = test_button_click
+
+@state.change("wrapper_type")
+def update_wrapper_type(wrapper_type, **kwargs):
+    """Update default temperature formula when wrapper type changes."""
+    log("info", f"Wrapper type changed to: {wrapper_type}")
+    
+    # Update default formula based on wrapper type
+    if wrapper_type == "simple":
+        # Position-based formula for simple wrapper
+        default_formula = "560.0 - 260.0*sin(x*pi / 4)"
+        state.custom_temperature_function = default_formula
+        log("info", "Updated to position-based formula for simple wrapper")
+    else:
+        # Time-based formula for unsteady CHT wrapper
+        default_formula = "a + b*sin(c*pi*time)"
+        state.custom_temperature_function = default_formula
+        log("info", "Updated to time-based formula for unsteady CHT wrapper")
+    
+    # Update the stored boundary settings
+    if hasattr(state, 'selectedBoundaryIndex') and state.selectedBoundaryIndex is not None:
+        state.BCDictList[state.selectedBoundaryIndex]['wrapper_type'] = wrapper_type
+        state.BCDictList[state.selectedBoundaryIndex]['temperature_function'] = state.custom_temperature_function
 
 

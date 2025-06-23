@@ -318,13 +318,15 @@ def su2_play():
         # save mesh
         # save config
         # save restart file
-        # call su2_cfd
-    else:
+        # call su2_cfd    else:
         state.solver_icon="mdi-play-circle"
         log("info", "### SU2 solver stopped!"),
         # we need to terminate or kill the result process here if stop is pressed
         log("debug", f"process= = {type(proc_SU2)}")
-        proc_SU2.terminate()
+        if proc_SU2 is not None:
+            proc_SU2.terminate()
+        else:
+            log("warning", "No SU2 process to terminate")
 
 # matplotlib history
 def update_convergence_fields_visibility(index, visibility):

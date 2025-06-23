@@ -35,6 +35,9 @@ from core.logger import log, clear_logs, Error_dialog_card, Warn_dialog_card, lo
 
 # Config tab
 from ui.config import *
+# Schema manager
+from ui.schema_manager import create_schema_dialog
+
 # User configuration
 from core.user_config import get_su2_path, set_su2_path, clear_config
 import platform
@@ -1388,6 +1391,8 @@ with SinglePageWithDrawerLayout(server) as layout:
         boundaries_dialog_card_supersonic_inlet()
         # variables dialogs
         variables_dialog_cards()
+        # schema manager dialog
+        create_schema_dialog()
         # error/warn dialog
         Error_dialog_card()
         Warn_dialog_card()
